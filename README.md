@@ -10,3 +10,4 @@ Used on Creality K1 series devices
 
 We are https://github.com/Klipper3d/klipper/ Updated relevant functions on the basis
 
+release：https://github.com/CrealityOfficial/K1_Series_Annex/tree/main/release
