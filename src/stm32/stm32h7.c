@@ -97,7 +97,7 @@ clock_setup(void)
         ;
     // (HSE 25mhz) /DIVM1(5) (pll_base 5Mhz) *DIVN1(192) (pll_freq 960Mhz)
     // /DIVP1(2) (SYSCLK 480Mhz)
-    uint32_t pll_base = 5000000;
+    uint32_t pll_base = 4000000;
     // Only even dividers (DIVP1) are allowed
     uint32_t pll_freq = CONFIG_CLOCK_FREQ * 2;
     if (!CONFIG_STM32_CLOCK_REF_INTERNAL) {

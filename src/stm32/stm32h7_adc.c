@@ -61,6 +61,9 @@
 #define ADC_TEMPERATURE_PIN 0xfe
 DECL_ENUMERATION("pin", "ADC_TEMPERATURE", ADC_TEMPERATURE_PIN);
 
+#define ADC_TEMPERATURE_PIN 0xfe
+DECL_ENUMERATION("pin", "ADC_TEMPERATURE", ADC_TEMPERATURE_PIN);
+
 DECL_CONSTANT("ADC_MAX", 4095);
 
 // GPIOs like A0_C are not covered!
@@ -347,7 +350,13 @@ gpio_adc_setup(uint32_t pin)
 
     // Preselect (connect) channel
 #ifdef ADC_PCSEL_PCSEL
+
+#if (CONFIG_MACH_STM32H723)
+    adc->PCSEL_RES0 |= (1 << chan);
+#else
     adc->PCSEL |= (1 << chan);
+#endif
+
 #endif
     return (struct gpio_adc){ .adc = adc, .chan = chan };
 }

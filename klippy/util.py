@@ -136,6 +136,8 @@ def get_version_from_file(klippy_src):
 def get_git_version(from_file=True):
     klippy_src = os.path.dirname(__file__)
 
+    return "09faed31-dirty"
+
     # Obtain version info from "git" program
     gitdir = os.path.join(klippy_src, '..')
     prog = ('git', '-C', gitdir, 'describe', '--always',

@@ -159,8 +159,8 @@ class MCU_endstop:
                 for s in ot.get_steppers():
                     if ot is not trsync and s.get_name().startswith(sname[:9]):
                         cerror = self._mcu.get_printer().config_error
-                        raise cerror("Multi-mcu homing not supported on"
-                                     " multi-mcu shared axis")
+                        raise cerror("""{"code": "key287", "msg": "Multi-mcu homing not supported on multi-mcu shared axis", "values":[]}""")
+
     def get_steppers(self):
         return [s for trsync in self._trsyncs for s in trsync.get_steppers()]
     def _build_config(self):
@@ -245,7 +245,7 @@ class MCU_digital_out:
         self._max_duration = max_duration
     def setup_start_value(self, start_value, shutdown_value, is_static=False):
         if is_static and start_value != shutdown_value:
-            raise pins.error("Static pin can not have shutdown value")
+            raise pins.error("""{"code": "key288", "msg": "Static pin can not have shutdown value", "values":[]}""")
         self._start_value = (not not start_value) ^ self._invert
         self._shutdown_value = (not not shutdown_value) ^ self._invert
         self._is_static = is_static
@@ -255,11 +255,11 @@ class MCU_digital_out:
                                      % (self._pin, self._start_value))
             return
         if self._max_duration and self._start_value != self._shutdown_value:
-            raise pins.error("Pin with max duration must have start"
-                             " value equal to shutdown value")
+            raise pins.error("""{"code": "key289", "msg": "Pin with max duration must have start value equal to shutdown value", "values":[]}""")
+
         mdur_ticks = self._mcu.seconds_to_clock(self._max_duration)
         if mdur_ticks >= 1<<31:
-            raise pins.error("Digital pin max duration too large")
+            raise pins.error("""{"code": "key290", "msg": "Digital pin max duration too large", "values":[]}""")
         self._mcu.request_move_queue_slot()
         self._oid = self._mcu.create_oid()
         self._mcu.add_config_cmd(
@@ -302,7 +302,7 @@ class MCU_pwm:
         self._hardware_pwm = hardware_pwm
     def setup_start_value(self, start_value, shutdown_value, is_static=False):
         if is_static and start_value != shutdown_value:
-            raise pins.error("Static pin can not have shutdown value")
+            raise pins.error("""{"code": "key288", "msg": "Static pin can not have shutdown value", "values":[]}""")
         if self._invert:
             start_value = 1. - start_value
             shutdown_value = 1. - shutdown_value
@@ -311,8 +311,8 @@ class MCU_pwm:
         self._is_static = is_static
     def _build_config(self):
         if self._max_duration and self._start_value != self._shutdown_value:
-            raise pins.error("Pin with max duration must have start"
-                             " value equal to shutdown value")
+            raise pins.error("""{"code": "key289", "msg": "Pin with max duration must have start value equal to shutdown value", "values":[]}""")
+
         cmd_queue = self._mcu.alloc_command_queue()
         curtime = self._mcu.get_printer().get_reactor().monotonic()
         printtime = self._mcu.estimated_print_time(curtime)
@@ -320,7 +320,7 @@ class MCU_pwm:
         cycle_ticks = self._mcu.seconds_to_clock(self._cycle_time)
         mdur_ticks = self._mcu.seconds_to_clock(self._max_duration)
         if mdur_ticks >= 1<<31:
-            raise pins.error("PWM pin max duration too large")
+            raise pins.error("""{"code": "key290", "msg": "Digital pin max duration too large", "values":[]}""")
         if self._hardware_pwm:
             self._pwm_max = self._mcu.get_constant_float("PWM_MAX")
             if self._is_static:
@@ -346,13 +346,13 @@ class MCU_pwm:
             return
         # Software PWM
         if self._shutdown_value not in [0., 1.]:
-            raise pins.error("shutdown value must be 0.0 or 1.0 on soft pwm")
+            raise pins.error("""{"code": "key291", "msg": "shutdown value must be 0.0 or 1.0 on soft pwm", "values":[]}""")
         if self._is_static:
             self._mcu.add_config_cmd("set_digital_out pin=%s value=%d"
                                      % (self._pin, self._start_value >= 0.5))
             return
         if cycle_ticks >= 1<<31:
-            raise pins.error("PWM pin cycle time too large")
+            raise pins.error("""{"code": "key292", "msg": "PWM pin cycle time too large", "values":[]}""")
         self._mcu.request_move_queue_slot()
         self._oid = self._mcu.create_oid()
         self._mcu.add_config_cmd(
@@ -390,7 +390,7 @@ class MCU_pwm:
         if cycle_ticks != self._last_cycle_ticks:
             if cycle_ticks >= 1<<31:
                 raise self._mcu.get_printer().command_error(
-                    "PWM cycle time too large")
+                    """{"code": "key293", "msg": "PWM cycle time too large", "values":[]}""")
             self._set_cycle_ticks.send([self._oid, cycle_ticks],
                                        minclock=minclock, reqclock=clock)
             self._last_cycle_ticks = cycle_ticks
@@ -484,8 +484,8 @@ class RetryAsyncCommand:
             query_time = self.reactor.monotonic()
             if query_time > first_query_time + self.TIMEOUT_TIME:
                 self.serial.register_response(None, self.name, self.oid)
-                raise serialhdl.error("Timeout on wait for '%s' response"
-                                      % (self.name,))
+                raise serialhdl.error("""{"code": "key294", "msg": "Timeout on wait for '%s' response", "values":["%s"]}"""
+                                      % (self.oid, self.name))
             self.serial.raw_send(cmd, minclock, minclock, cmd_queue)
 
 # Wrapper around query commands
@@ -621,7 +621,36 @@ class MCU:
         prefix = "MCU '%s' shutdown: " % (self._name,)
         if params['#name'] == 'is_shutdown':
             prefix = "Previous MCU '%s' shutdown: " % (self._name,)
-        self._printer.invoke_async_shutdown(prefix + msg + error_help(msg))
+        code_key_string = ""
+        if msg == "Timer too close":
+            logging.error("msg is Timer too close!!!")
+            code_key_string = "key90"
+        elif msg == "Missed scheduling of next":
+            code_key_string = "key91"
+        elif msg == "ADC out of range":
+            code_key_string = "key92"
+            mcu_temp_obj = self._printer.lookup_object('temperature_sensor mcu_temp') if self._printer.objects.get('temperature_sensor mcu_temp') else None
+            chamber_temp_obj = self._printer.lookup_object('temperature_sensor chamber_temp') if self._printer.objects.get('temperature_sensor chamber_temp') else None
+            heater_bed_obj = self._printer.lookup_object('heater_bed') if self._printer.objects.get('heater_bed') else None
+            extruder_obj = self._printer.lookup_object('extruder') if self._printer.objects.get('extruder') else None
+            if extruder_obj and extruder_obj.heater.smoothed_temp < 0:
+                msg += " extruder_temp:%s" % round(extruder_obj.heater.smoothed_temp, 2)
+                code_key_string = "key509"
+            if heater_bed_obj and heater_bed_obj.heater.smoothed_temp < 0:
+                msg += " heater_bed_temp:%s" % round(heater_bed_obj.heater.smoothed_temp, 2)
+                code_key_string = "key510"
+            if chamber_temp_obj and chamber_temp_obj.last_temp < 0:
+                msg += " chamber_temp:%s" % round(chamber_temp_obj.last_temp, 2)
+                code_key_string = "key511"
+            if mcu_temp_obj and mcu_temp_obj.last_temp < 0:
+                msg += " mcu_temp:%s" % round(mcu_temp_obj.last_temp, 2)
+                code_key_string = "key512"
+        elif msg == "Rescheduled timer in the past":
+            code_key_string = "key93"
+        elif msg == "Command request":
+            code_key_string = "key94"
+        self._printer.invoke_async_shutdown(
+            """{"code": "%s", "msg":"%s", "values": []}""" % (code_key_string, prefix + msg + error_help(msg)))
     def _handle_starting(self, params):
         if not self._is_shutdown:
             self._printer.invoke_async_shutdown("MCU '%s' spontaneous restart"
@@ -635,7 +664,7 @@ class MCU:
                      self._name, reason)
         self._printer.request_exit('firmware_restart')
         self._reactor.pause(self._reactor.monotonic() + 2.000)
-        raise error("Attempt MCU '%s' restart failed" % (self._name,))
+        raise error("""{"code": "key295", "msg": "Attempt MCU '%s' restart failed", "values":["%s"]}""" % (self._name, self._name))
     def _connect_file(self, pace=False):
         # In a debugging mode.  Open debug output file and read data dictionary
         start_args = self._printer.get_start_args()
@@ -675,7 +704,7 @@ class MCU:
         self.add_config_cmd("finalize_config crc=%d" % (config_crc,))
         if prev_crc is not None and config_crc != prev_crc:
             self._check_restart("CRC mismatch")
-            raise error("MCU '%s' CRC does not match config" % (self._name,))
+            raise error("""{"code": "key296", "msg": "MCU '%s' CRC does not match config", "values":["%s"]}""" % (self._name, self._name))
         # Transmit config messages (if needed)
         self.register_response(self._handle_starting, 'starting')
         try:
@@ -695,8 +724,8 @@ class MCU:
             if enum_name == 'pin':
                 # Raise pin name errors as a config error (not a protocol error)
                 raise self._printer.config_error(
-                    "Pin '%s' is not a valid pin name on mcu '%s'"
-                    % (enum_value, self._name))
+                    """{"code": "key297", "msg": "Pin '%s' is not a valid pin name on mcu '%s'", "values":["%s", "%s"]}"""
+                    % (enum_value, self._name, enum_value, self._name))
             raise
     def _send_get_config(self):
         get_config_cmd = self.lookup_query_command(
@@ -706,11 +735,11 @@ class MCU:
             return { 'is_config': 0, 'move_count': 500, 'crc': 0 }
         config_params = get_config_cmd.send()
         if self._is_shutdown:
-            raise error("MCU '%s' error during config: %s" % (
-                self._name, self._shutdown_msg))
+            raise error("""{"code": "key300", "msg": "MCU '%s' error during config: %s", "values":["%s", "%s"]}""" % (
+                self._name, self._shutdown_msg, self._name, self._shutdown_msg))
         if config_params['is_shutdown']:
-            raise error("Can not update MCU '%s' config as it is shutdown" % (
-                self._name,))
+            raise error("""{"code": "key298", "msg": "Can not update MCU %s config as it is shutdown", "values":["%s"]}""" % (
+                self._name, self._name))
         return config_params
     def _log_info(self):
         msgparser = self._serial.get_msgparser()
@@ -732,18 +761,18 @@ class MCU:
             self._send_config(None)
             config_params = self._send_get_config()
             if not config_params['is_config'] and not self.is_fileoutput():
-                raise error("Unable to configure MCU '%s'" % (self._name,))
+                raise error("""{"code": "key299", "msg": "Unable to configure MCU '%s'", "values":["%s"]}""" % (self._name, self._name))
         else:
             start_reason = self._printer.get_start_args().get("start_reason")
             if start_reason == 'firmware_restart':
-                raise error("Failed automated reset of MCU '%s'"
-                            % (self._name,))
+                raise error("""{"code": "key301", "msg": "Failed automated reset of MCU '%s'", "values":["%s"]}"""
+                            % (self._name, self._name))
             # Already configured - send init commands
             self._send_config(config_params['crc'])
         # Setup steppersync with the move_count returned by get_config
         move_count = config_params['move_count']
         if move_count < self._reserved_move_slots:
-            raise error("Too few moves available on MCU '%s'" % (self._name,))
+            raise error("""{"code": "key302", "msg": "Too few moves available on MCU '%s'", "values":["%s"]}""" % (self._name, self._name))
         ffi_main, ffi_lib = chelper.get_ffi()
         self._steppersync = ffi_main.gc(
             ffi_lib.steppersync_alloc(self._serial.serialqueue,
@@ -813,7 +842,7 @@ class MCU:
         pcs = {'endstop': MCU_endstop,
                'digital_out': MCU_digital_out, 'pwm': MCU_pwm, 'adc': MCU_adc}
         if pin_type not in pcs:
-            raise pins.error("pin type %s not supported on mcu" % (pin_type,))
+            raise pins.error("""{"code": "key303", "msg": "pin type %s not supported on mcu", "values":["%s"]}""" % (pin_type, pin_type))
         return pcs[pin_type](self, pin_params)
     def create_oid(self):
         self._oid_count += 1
@@ -959,8 +988,18 @@ class MCU:
         self._is_timeout = True
         logging.info("Timeout with MCU '%s' (eventtime=%f)",
                      self._name, eventtime)
-        self._printer.invoke_shutdown("Lost communication with MCU '%s'" % (
-            self._name,))
+        #code_key = "key506"
+        code_key = "key560"
+        if self._name == "mcu":
+            code_key = "key560"
+        elif self._name == "nozzle_mcu":
+            code_key = "key561"
+        elif self._name == "leveling_mcu":
+            code_key = "key562"
+        elif self._name == "rpi":
+            code_key = "key563"
+        m = """{"code":"%s","msg":"Lost communication with MCU '%s'"}""" % (code_key, self._name)
+        self._printer.invoke_shutdown(m)
     def get_status(self, eventtime=None):
         return dict(self._get_status_info)
     def stats(self, eventtime):

@@ -18,6 +18,8 @@ class PrinterHeaterBed:
     def cmd_M140(self, gcmd, wait=False):
         # Set Bed Temperature
         temp = gcmd.get_float('S', 0.)
+        if temp > 110.:
+            temp = 110.
         pheaters = self.printer.lookup_object('heaters')
         pheaters.set_temperature(self.heater, temp, wait)
     def cmd_M190(self, gcmd):

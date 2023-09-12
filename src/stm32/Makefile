@@ -34,6 +34,7 @@ $(OUT)klipper.elf: $(OUT)src/generic/armcm_link.ld
 src-y += stm32/watchdog.c stm32/gpio.c stm32/clockline.c stm32/dfu_reboot.c
 src-y += generic/crc16_ccitt.c
 src-y += generic/armcm_boot.c generic/armcm_irq.c generic/armcm_reset.c
+
 src-$(CONFIG_MACH_STM32F0) += ../lib/stm32f0/system_stm32f0xx.c
 src-$(CONFIG_MACH_STM32F0) += generic/timer_irq.c stm32/stm32f0_timer.c
 src-$(CONFIG_MACH_STM32F0) += stm32/stm32f0.c stm32/gpioperiph.c
@@ -81,12 +82,29 @@ src-$(CONFIG_USBCANBUS) += $(usb-src-y) $(canbus-src-y)
 src-$(CONFIG_USBCANBUS) += stm32/chipid.c generic/usb_canbus.c
 src-$(CONFIG_HAVE_GPIO_HARD_PWM) += stm32/hard_pwm.c
 
+# Rename binary output file rules
+ifeq ($(CONFIG_BOARD_INFO_CONFIGURE),y)
+
+ifneq ($(board_hw_version)$(board_fw_version),)
+rename_bin := $(board_hw_version)-$(board_fw_version).bin
+
+target-y += $(OUT)$(rename_bin)
+
+$(OUT)$(rename_bin):$(OUT)klipper.bin
+	@echo "  Rename hex file"
+	$(Q)cp -v $< $@
+endif
+
+endif
+
 # Binary output file rules
 target-y += $(OUT)klipper.bin
 
-$(OUT)klipper.bin: $(OUT)klipper.elf
+$(OUT)klipper.bin: $(OUT)klipper.elf $(OUT)hostCrc16.elf
 	@echo "  Creating hex file $@"
 	$(Q)$(OBJCOPY) -O binary $< $@
+	$(Q)$(OUT)hostCrc16.elf $@
+	$(Q)srec_cat $@ -binary -offset $(CONFIG_FLASH_APPLICATION_ADDRESS) -o $(OUT)klipper.hex -intel 
 
 # Flash rules
 lib/hidflash/hid-flash:

@@ -603,6 +603,7 @@ static void *
 background_thread(void *data)
 {
     struct serialqueue *sq = data;
+    nice(-20);
     pollreactor_run(sq->pr);
 
     pthread_mutex_lock(&sq->lock);

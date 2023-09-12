@@ -54,6 +54,10 @@ class MCU_stepper:
                                                        self._query_mcu_position)
     def get_mcu(self):
         return self._mcu
+
+    def get_pin_info(self):
+        return self._dir_pin, self._step_pin, self._invert_dir, self._invert_step
+
     def get_name(self, short=False):
         if short and self._name.startswith('stepper_'):
             return self._name[8:]
@@ -344,8 +348,8 @@ class PrinterRail:
                 self.homing_positive_dir = True
             else:
                 raise config.error(
-                    "Unable to infer homing_positive_dir in section '%s'"
-                    % (config.get_name(),))
+                   """{"code":"key75", "msg": "Unable to infer homing_positive_dir in section '%s'", "values": ["%s"]"""
+                    % (config.get_name(),config.get_name()))
             config.getboolean('homing_positive_dir', self.homing_positive_dir)
         elif ((self.homing_positive_dir
                and self.position_endstop == self.position_min)
@@ -398,9 +402,8 @@ class PrinterRail:
             changed_invert = pin_params['invert'] != endstop['invert']
             changed_pullup = pin_params['pullup'] != endstop['pullup']
             if changed_invert or changed_pullup:
-                raise error("Pinter rail %s shared endstop pin %s "
-                            "must specify the same pullup/invert settings" % (
-                                self.get_name(), pin_name))
+                raise error("""{"code":"key76", "msg": "Pinter rail %s shared endstop pin %s must specify the same pullup/invert settings", "values": ["%s", "%s"]}""" % (
+                                self.get_name(), pin_name, self.get_name(), pin_name))
         mcu_endstop.add_stepper(stepper)
     def setup_itersolve(self, alloc_func, *params):
         for stepper in self.steppers:

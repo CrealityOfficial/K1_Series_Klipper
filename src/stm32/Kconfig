@@ -7,6 +7,7 @@ config STM32_SELECT
     default y
     select HAVE_GPIO
     select HAVE_GPIO_ADC
+	select HAVE_PRTOUCH
     select HAVE_GPIO_I2C if !(MACH_STM32F031 || MACH_STM32H7)
     select HAVE_GPIO_SPI if !MACH_STM32F031
     select HAVE_GPIO_HARD_PWM if MACH_STM32F1 || MACH_STM32F4 || MACH_STM32G0 || MACH_STM32H7
@@ -51,6 +52,9 @@ choice
     config MACH_STM32F446
         bool "STM32F446"
         select MACH_STM32F4
+    config MACH_STM32F030
+        bool "STM32F030"
+        select MACH_STM32F0
     config MACH_STM32F031
         bool "STM32F031"
         select MACH_STM32F0
@@ -73,6 +77,9 @@ choice
         bool "STM32G0B1"
         select MACH_STM32G0
         select MACH_STM32G0Bx
+    config MACH_STM32G071
+        bool "STM32G071"
+        select MACH_STM32G0
     config MACH_STM32G431
         bool "STM32G431"
         select MACH_STM32G4
@@ -89,6 +96,27 @@ choice
         bool "STM32L412"
         select MACH_STM32L4
 endchoice
+
+config MCU_TYPE
+    string
+	default "00" if MACH_STM32F030
+	default "01" if MACH_STM32F031
+	default "02" if MACH_STM32F042
+	default "03" if MACH_STM32F070
+	default "04" if MACH_STM32F072
+	default "05" if MACH_STM32F0x2
+	default "10" if MACH_STM32F103
+	default "20" if MACH_STM32F207
+	default "40" if MACH_STM32F401
+	default "41" if MACH_STM32F405
+	default "42" if MACH_STM32F429
+	default "43" if MACH_STM32F446
+	default "44" if MACH_STM32F4x5
+	default "70" if MACH_STM32H723
+	default "71" if MACH_STM32H743
+	default "72" if MACH_STM32H750
+	default "06" if MACH_STM32G071
+	default "07" if MACH_STM32G0B1
 
 config MACH_STM32F103x6
     depends on LOW_LEVEL_OPTIONS && MACH_STM32F103
@@ -138,6 +166,7 @@ config HAVE_STM32_USBCANBUS
 
 config MCU
     string
+    default "stm32f030x6" if MACH_STM32F030
     default "stm32f031x6" if MACH_STM32F031
     default "stm32f042x6" if MACH_STM32F042
     default "stm32f070xb" if MACH_STM32F070
@@ -151,6 +180,7 @@ config MCU
     default "stm32f446xx" if MACH_STM32F446
     default "stm32g0b0xx" if MACH_STM32G0B0
     default "stm32g0b1xx" if MACH_STM32G0B1
+    default "stm32g071xx" if MACH_STM32G071
     default "stm32g431xx" if MACH_STM32G431
     default "stm32h723xx" if MACH_STM32H723
     default "stm32h743xx" if MACH_STM32H743
@@ -173,15 +203,18 @@ config CLOCK_FREQ
 
 config FLASH_SIZE
     hex
-    default 0x4000 if MACH_STM32F031
+    default 0x4000 if MACH_STM32F031 || MACH_STM32F030
     default 0x8000 if MACH_STM32F042
     default 0x20000 if MACH_STM32F070 || MACH_STM32F072
     default 0x10000 if MACH_STM32F103 || MACH_STM32L412 # Flash size of stm32f103x8 (64KiB)
     default 0x40000 if MACH_STM32F2 || MACH_STM32F401 || MACH_STM32H723
     default 0x80000 if MACH_STM32F4x5 || MACH_STM32F446
+    default 0x20000 if MACH_STM32G0B1
+    default 0x20000 if MACH_STM32G071
     default 0x20000 if MACH_STM32G0 || MACH_STM32G431
     default 0x20000 if MACH_STM32H750
     default 0x200000 if MACH_STM32H743
+    default 0x100000 if MACH_STM32H723
 
 config FLASH_BOOT_ADDRESS
     hex
@@ -189,11 +222,12 @@ config FLASH_BOOT_ADDRESS
 
 config RAM_START
     hex
+    default 0x24000000 if MACH_STM32H723 || MACH_STM32H743
     default 0x20000000
 
 config RAM_SIZE
     hex
-    default 0x1000 if MACH_STM32F031
+    default 0x1000 if MACH_STM32F031 || MACH_STM32F030
     default 0x1800 if MACH_STM32F042
     default 0x4000 if MACH_STM32F070 || MACH_STM32F072
     default 0x2800 if MACH_STM32F103x6
@@ -203,6 +237,10 @@ config RAM_SIZE
     default 0x20000 if MACH_STM32F207
     default 0x10000 if MACH_STM32F401
     default 0x20000 if MACH_STM32F4x5 || MACH_STM32F446
+    default 0x24000 if MACH_STM32G0B1
+    default 0x9000 if MACH_STM32G071
+    default 0x20000 if MACH_STM32H750 || MACH_STM32H723 || MACH_STM32F207
+    default 0x80000 if MACH_STM32H743
     default 0x24000 if MACH_STM32G0Bx
     default 0x20000 if MACH_STM32H7
 
@@ -238,6 +276,8 @@ choice
     prompt "Bootloader offset"
     config STM32_FLASH_START_2000
         bool "8KiB bootloader" if MACH_STM32F103 || MACH_STM32F070 || MACH_STM32G0 || MACH_STM32F0x2
+    config STM32_FLASH_START_3000
+        bool "12KiB bootloader" if MACH_STM32F4 || MACH_STM32G0
     config STM32_FLASH_START_5000
         bool "20KiB bootloader" if MACH_STM32F103
     config STM32_FLASH_START_7000
@@ -270,6 +310,7 @@ config FLASH_APPLICATION_ADDRESS
     default 0x8000800 if STM32_FLASH_START_800
     default 0x8001000 if STM32_FLASH_START_1000
     default 0x8002000 if STM32_FLASH_START_2000
+    default 0x8003000 if STM32_FLASH_START_3000
     default 0x8004000 if STM32_FLASH_START_4000
     default 0x8005000 if STM32_FLASH_START_5000
     default 0x8007000 if STM32_FLASH_START_7000
@@ -343,6 +384,10 @@ choice
         select USBSERIAL
     config STM32_SERIAL_USART1
         bool "Serial (on USART1 PA10/PA9)"
+        select SERIAL
+    config STM32_SERIAL_USART1_ALT_PB14_PB15
+        bool "Serial (on USART1 PB14/PB15)"
+        depends on MACH_STM32H7
         select SERIAL
     config STM32_SERIAL_USART1_ALT_PB7_PB6
         bool "Serial (on USART1 PB7/PB6)" if LOW_LEVEL_OPTIONS

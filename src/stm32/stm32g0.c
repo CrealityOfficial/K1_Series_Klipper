@@ -36,14 +36,18 @@ lookup_clock_line(uint32_t periph_base)
     if ((periph_base == FDCAN1_BASE) || (periph_base == FDCAN2_BASE))
         return (struct cline){.en=&RCC->APBENR1,.rst=&RCC->APBRSTR1,.bit=1<<12};
 #endif
+#ifdef USB_BASE
     if (periph_base == USB_BASE)
         return (struct cline){.en=&RCC->APBENR1,.rst=&RCC->APBRSTR1,.bit=1<<13};
+#endif
 #ifdef CRS_BASE
     if (periph_base == CRS_BASE)
         return (struct cline){.en=&RCC->APBENR1,.rst=&RCC->APBRSTR1,.bit=1<<16};
 #endif
+#ifdef I2C3_BASE
     if (periph_base == I2C3_BASE)
         return (struct cline){.en=&RCC->APBENR1,.rst=&RCC->APBRSTR1,.bit=1<<23};
+#endif
     if (periph_base == TIM1_BASE)
         return (struct cline){.en=&RCC->APBENR2,.rst=&RCC->APBRSTR2,.bit=1<<11};
     if (periph_base == SPI1_BASE)
@@ -119,8 +123,12 @@ clock_setup(void)
     while ((RCC->CFGR & RCC_CFGR_SWS_Msk) != (2 << RCC_CFGR_SWS_Pos))
         ;
 
+	#ifdef RCC_CCIPR2_USBSEL_Pos
+
     // Use PLLQCLK for USB (setting USBSEL=2 works in practice)
     RCC->CCIPR2 = 2 << RCC_CCIPR2_USBSEL_Pos;
+
+	#endif
 }
 
 

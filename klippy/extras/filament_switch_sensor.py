@@ -71,7 +71,9 @@ class RunoutHelper:
             return
         # Determine "printing" status
         idle_timeout = self.printer.lookup_object("idle_timeout")
-        is_printing = idle_timeout.get_status(eventtime)["state"] == "Printing"
+        print_stats = self.printer.lookup_object('print_stats')
+        is_printing = print_stats.state == "printing"
+        # is_printing = idle_timeout.get_status(eventtime)["state"] == "Printing"
         # Perform filament action associated with status change (if any)
         if is_filament_present:
             if not is_printing and self.insert_gcode is not None:

@@ -29,29 +29,36 @@ class ConfigWrapper:
                     acc_id = (self.section.lower(), option.lower())
                     self.access_tracking[acc_id] = default
                 return default
-            raise error("Option '%s' in section '%s' must be specified"
-                        % (option, self.section))
+            raise error(
+                """{"code":"key335", "msg":"Option '%s' in section '%s' must be specified", "values":["%s", "%s"]}"""
+                % (option, self.section, option, self.section))
         try:
             v = parser(self.section, option)
         except self.error as e:
             raise
         except:
-            raise error("Unable to parse option '%s' in section '%s'"
-                        % (option, self.section))
+            raise error(
+                """{"code": "key282", "msg": "Unable to parse option '%s' in section '%s'", "values":["%s", "%s"]}"""
+                % (option, self.section, option, self.section))
         if note_valid:
             self.access_tracking[(self.section.lower(), option.lower())] = v
         if minval is not None and v < minval:
-            raise error("Option '%s' in section '%s' must have minimum of %s"
-                        % (option, self.section, minval))
+            if option == "z_offset" and self.section == "bltouch":
+                raise error("""{"code":"key281", "msg":"Error on 'z_offset': 'touch' must have minimum of %s", "values":["%s"]}""" % (
+                    minval, minval
+                ))
+            else:
+                raise error("""{"code":"key252", "msg":"Error on '%s': %s must have minimum of %s", "values":["%s","%s","%s"]}"""
+                            % (option, self.section, minval, option, self.section, minval))
         if maxval is not None and v > maxval:
-            raise error("Option '%s' in section '%s' must have maximum of %s"
-                        % (option, self.section, maxval))
+            raise error("""{"code":"key253", "msg":"Error on '%s': %s must have maximumof %s", "values":["%s","%s","%s"]}"""
+                        % (option, self.section, maxval, option, self.section, maxval))
         if above is not None and v <= above:
-            raise error("Option '%s' in section '%s' must be above %s"
-                        % (option, self.section, above))
+            raise error("""{"code":"key254", "msg":"Error on '%s': %s must be above %s", "values":["%s","%s","%s"]}"""
+                        % (option, self.section, above, option, self.section, above))
         if below is not None and v >= below:
-            raise self.error("Option '%s' in section '%s' must be below %s"
-                             % (option, self.section, below))
+            raise self.error("""{"code":"key255", "msg":"Error on '%s': %s must be below %s", "values":["%s","%s","%s"]}"""
+                             % (option, self.section, below, option, self.section, below))
         return v
     def get(self, option, default=sentinel, note_valid=True):
         return self._get_wrapper(self.fileconfig.get, option, default,
@@ -147,6 +154,8 @@ class PrinterConfig:
         gcode = self.printer.lookup_object('gcode')
         gcode.register_command("SAVE_CONFIG", self.cmd_SAVE_CONFIG,
                                desc=self.cmd_SAVE_CONFIG_help)
+        gcode.register_command("CXSAVE_CONFIG", self.cmd_CXSAVE_CONFIG,
+                               desc=self.cmd_CXSAVE_CONFIG_help)
     def get_printer(self):
         return self.printer
     def _read_config_file(self, filename):
@@ -292,13 +301,11 @@ class PrinterConfig:
         for section_name in fileconfig.sections():
             section = section_name.lower()
             if section not in valid_sections and section not in objects:
-                raise error("Section '%s' is not a valid config section"
-                            % (section,))
+                raise error("""{"code":"key341", "msg":"Section '%s' is not a valid config section", "values":["%s"]}""" % (section, section))
             for option in fileconfig.options(section_name):
                 option = option.lower()
                 if (section, option) not in access_tracking:
-                    raise error("Option '%s' is not valid in section '%s'"
-                                % (option, section))
+                    raise error("""{"code":"key342", "msg":"Option '%s' is not valid in section '%s'", "values":["%s", "%s"]}""" % (option, section, option, section))
         # Setup get_status()
         self._build_status(config)
     def log_config(self, config):
@@ -417,3 +424,52 @@ class PrinterConfig:
             raise gcode.error(msg)
         # Request a restart
         gcode.request_restart('restart')
+
+    cmd_CXSAVE_CONFIG_help = "Overwrite config file by cx "
+    def cmd_CXSAVE_CONFIG(self, gcmd):
+        if not self.autosave.fileconfig.sections():
+            return
+        gcode = self.printer.lookup_object('gcode')
+        # Create string containing autosave data
+        autosave_data = self._build_config_string(self.autosave)
+        lines = [('#*# ' + l).strip()
+                 for l in autosave_data.split('\n')]
+        lines.insert(0, "\n" + AUTOSAVE_HEADER.rstrip())
+        lines.append("")
+        autosave_data = '\n'.join(lines)
+        # Read in and validate current config file
+        cfgname = self.printer.get_start_args()['config_file']
+        try:
+            data = self._read_config_file(cfgname)
+            regular_data, old_autosave_data = self._find_autosave_data(data)
+            config = self._build_config_wrapper(regular_data, cfgname)
+        except error as e:
+            msg = "Unable to parse existing config on SAVE_CONFIG"
+            logging.exception(msg)
+            raise gcode.error(msg)
+        regular_data = self._strip_duplicates(regular_data, self.autosave)
+        self._disallow_include_conflicts(regular_data, cfgname, gcode)
+        data = regular_data.rstrip() + autosave_data
+        # Determine filenames
+        datestr = time.strftime("-%Y%m%d_%H%M%S")
+        backup_name = cfgname + datestr
+        temp_name = cfgname + "_autosave"
+        if cfgname.endswith(".cfg"):
+            backup_name = cfgname[:-4] + datestr + ".cfg"
+            temp_name = cfgname[:-4] + "_autosave.cfg"
+        # Create new config file with temporary name and swap with main config
+        logging.info("SAVE_CONFIG to '%s' (backup in '%s')",
+                     cfgname, backup_name)
+        try:
+            f = open(temp_name, 'w')
+            f.write(data)
+            f.close()
+            os.rename(cfgname, backup_name)
+            os.rename(temp_name, cfgname)
+        except:
+            msg = "Unable to write config file during SAVE_CONFIG"
+            logging.exception(msg)
+            raise gcode.error(msg)
+
+        # Request a restart
+        # gcode.request_restart('restart')

@@ -1,5 +1,6 @@
+.history
 out
-*.so
+#*.so
 *.pyc
 .config
 .config.old

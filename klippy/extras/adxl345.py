@@ -5,6 +5,8 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging, time, collections, threading, multiprocessing, os
 from . import bus, motion_report
+import struct
+from multiprocessing import shared_memory
 
 # ADXL345 registers
 REG_DEVID = 0x00
@@ -83,6 +85,71 @@ class AccelQueryHelper:
                 count += 1
         del samples[count:]
         return self.samples
+
+    def copy_double_to_buffer(self, buffer, offset, val):
+        bytes = struct.pack("d", val)
+
+        # little store
+        try:
+            buffer[offset:offset+8] = bytearray(bytes)
+            del bytes
+        except:
+            gcode = self.printer.lookup_object('gcode')
+            gcode.respond_info("val: %f, bytes: %s, offset: %d" % (val, bytes.hex(), offset))
+
+    def copy_int_to_buffer(self, buffer, offset, val):
+        # little store
+        try:
+            buffer[offset] = val & 0xFF
+            buffer[offset + 1] = (val >> 8) & 0xFF
+            buffer[offset + 2] = (val >> 16) & 0xFF
+            buffer[offset + 3] = (val >> 24) & 0xFF
+        except:
+            gcode = self.printer.lookup_object('gcode')
+            gcode.respond_info("val: %f, offset: %d" % (val, offset))
+
+    def get_samples_to_shared_mem(self):
+        gcode = self.printer.lookup_object('gcode')
+        raw_samples = self._get_raw_samples()
+        if not raw_samples:
+            return self.samples
+        total = sum([len(m['params']['data']) for m in raw_samples])
+        count = 0
+
+        # shm size = (double bytes) * (count of member: samp_time, x, y and z) * total
+        shm_size = 8 * 4 * total
+        shm = shared_memory.SharedMemory(name="psm_samples", create=True, size=shm_size)
+
+        buffer = shm.buf
+        self.copy_int_to_buffer(buffer, 0, count)
+        count += 4
+
+        reactor = self.printer.get_reactor()
+        for msg in raw_samples:
+            for samp_time, x, y, z in msg['params']['data']:
+                if samp_time < self.request_start_time:
+                    continue
+                if samp_time > self.request_end_time:
+                    break
+
+                # 30000 * sizeof(samp_time, x, y, z) + sizeof(count)
+                # switch process
+                if count % 960000 == 4:
+                    reactor.pause(reactor.monotonic() + .1)
+
+                self.copy_double_to_buffer(buffer, count, samp_time)
+                count += 8
+                self.copy_double_to_buffer(buffer, count, x)
+                count += 8
+                self.copy_double_to_buffer(buffer, count, y)
+                count += 8
+                self.copy_double_to_buffer(buffer, count, z)
+                count += 8
+
+        self.copy_int_to_buffer(buffer, 0, count)
+        shm.close()
+        gcode.respond_info("shm_size: %d, double bytes count: %d" % (shm_size, count))
+
     def write_to_file(self, filename):
         def write_impl():
             try:
@@ -114,6 +181,22 @@ class AccelCommandHelper:
         if len(name_parts) == 1:
             if self.name == "adxl345" or not config.has_section("adxl345"):
                 self.register_commands(None)
+        webhooks = self.printer.lookup_object('webhooks')
+        webhooks.register_endpoint("getAdxl345Status",
+                                   self.get_adxl345_status)
+    def get_adxl345_status(self, web_request):
+        adxl345_is_exist = True
+        try:
+            aclient = self.chip.start_internal_client()
+            self.printer.lookup_object('toolhead').dwell(1.)
+            aclient.finish_measurements()
+            values = aclient.get_samples()
+        except Exception as err:
+            logging.error(err)
+            values = ""
+        if not values:
+            adxl345_is_exist = False
+        web_request.send({"adxl345_is_exist": adxl345_is_exist})
     def register_commands(self, name):
         # Register commands
         gcode = self.printer.lookup_object('gcode')
@@ -139,7 +222,7 @@ class AccelCommandHelper:
         # End measurements
         name = gcmd.get("NAME", time.strftime("%Y%m%d_%H%M%S"))
         if not name.replace('-', '').replace('_', '').isalnum():
-            raise gcmd.error("Invalid NAME parameter")
+            raise gcmd.error("""{"code":"key64", "msg":"Invalid adxl345 NAME parameter", "values": []}""")
         bg_client = self.bg_client
         self.bg_client = None
         bg_client.finish_measurements()
@@ -158,7 +241,7 @@ class AccelCommandHelper:
         aclient.finish_measurements()
         values = aclient.get_samples()
         if not values:
-            raise gcmd.error("No accelerometer measurements found")
+            raise gcmd.error("""{"code":"key232", "msg":"No adxl345 measurements found", "values": []}""")
         _, accel_x, accel_y, accel_z = values[-1]
         gcmd.respond_info("accelerometer values (x, y, z): %.6f, %.6f, %.6f"
                           % (accel_x, accel_y, accel_z))
@@ -236,11 +319,11 @@ class ADXL345:
               '-x': (0, -SCALE_XY), '-y': (1, -SCALE_XY), '-z': (2, -SCALE_Z)}
         axes_map = config.getlist('axes_map', ('x','y','z'), count=3)
         if any([a not in am for a in axes_map]):
-            raise config.error("Invalid adxl345 axes_map parameter")
+            raise config.error('{"code": "key9", "msg": "Invalid adxl345 axes_map parameter"}')
         self.axes_map = [am[a.strip()] for a in axes_map]
         self.data_rate = config.getint('rate', 3200)
         if self.data_rate not in QUERY_RATES:
-            raise config.error("Invalid rate parameter: %d" % (self.data_rate,))
+            raise config.error("""{"code":"key245", "msg":"Invalid rate parameter: %d", "values": [%d]}""" % (self.data_rate,self.data_rate,))
         # Measurement storage (accessed from background thread)
         self.lock = threading.Lock()
         self.raw_samples = []
@@ -288,10 +371,8 @@ class ADXL345:
         stored_val = self.read_reg(reg)
         if stored_val != val:
             raise self.printer.command_error(
-                    "Failed to set ADXL345 register [0x%x] to 0x%x: got 0x%x. "
-                    "This is generally indicative of connection problems "
-                    "(e.g. faulty wiring) or a faulty adxl345 chip." % (
-                        reg, val, stored_val))
+                    """{"code":"key65", "msg":"Failed to set ADXL345 register [0x%x] to 0x%x: got 0x%x. \nThis is generally indicative of connection problems\n(e.g. faulty wiring)\nor a faulty adxl345 chip.", "values": ["%x","%x","%x"]}""" % (
+                        reg, val, stored_val, reg, val, stored_val))
     # Measurement collection
     def is_measuring(self):
         return self.query_rate > 0
@@ -341,7 +422,7 @@ class ADXL345:
             if fifo <= 32:
                 break
         else:
-            raise self.printer.command_error("Unable to query adxl345 fifo")
+            raise self.printer.command_error("""{"code":"key118", "msg":"Unable to query adxl345 fifo", "values": []}""")
         mcu_clock = self.mcu.clock32_to_clock64(params['clock'])
         sequence = (self.last_sequence & ~0xffff) | params['next_sequence']
         if sequence < self.last_sequence:
@@ -374,10 +455,8 @@ class ADXL345:
         dev_id = self.read_reg(REG_DEVID)
         if dev_id != ADXL345_DEV_ID:
             raise self.printer.command_error(
-                "Invalid adxl345 id (got %x vs %x).\n"
-                "This is generally indicative of connection problems\n"
-                "(e.g. faulty wiring) or a faulty adxl345 chip."
-                % (dev_id, ADXL345_DEV_ID))
+                """{"code":"key119", "msg": "Invalid adxl345 id (got %x vs %x).This is generally indicative of connection problems(e.g. faulty wiring) or a faulty adxl345 chip.", "values": ["%x", "%x"]}"""
+                % (dev_id, ADXL345_DEV_ID, dev_id, ADXL345_DEV_ID))
         # Setup chip in requested query rate
         self.set_reg(REG_POWER_CTL, 0x00)
         self.set_reg(REG_DATA_FORMAT, 0x0B)
