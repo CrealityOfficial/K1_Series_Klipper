@@ -271,6 +271,13 @@ class GCodeDispatch:
         lines = [l.strip() for l in msg.strip().split('\n')]
         self.respond_raw("// " + "\n// ".join(lines))
     def _respond_error(self, msg):
+        try:
+            v_sd = self.printer.lookup_object('virtual_sdcard')
+            if v_sd.print_id and "key" in msg and re.findall('key(\d+)', msg):
+                v_sd.update_print_history_info(only_update_status=True, state="error", error_msg=eval(msg))
+                v_sd.print_id = ""
+        except Exception as err:
+            logging.error(err)
         logging.warning(msg)
         lines = msg.strip().split('\n')
         if len(lines) > 1:

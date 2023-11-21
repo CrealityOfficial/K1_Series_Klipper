@@ -15,11 +15,12 @@ class PrinterHeaterBed:
         gcode = self.printer.lookup_object('gcode')
         gcode.register_command("M140", self.cmd_M140)
         gcode.register_command("M190", self.cmd_M190)
+        self.max_temp = config.getfloat('max_temp', above=0.0)
     def cmd_M140(self, gcmd, wait=False):
         # Set Bed Temperature
         temp = gcmd.get_float('S', 0.)
-        if temp > 110.:
-            temp = 110.
+        if temp > self.max_temp - 15.0:
+            temp = self.max_temp - 15.0
         pheaters = self.printer.lookup_object('heaters')
         pheaters.set_temperature(self.heater, temp, wait)
     def cmd_M190(self, gcmd):

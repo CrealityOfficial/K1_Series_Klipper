@@ -313,13 +313,13 @@ class GCodeMove:
                 logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE fan fan_state:%s" % str(state["fan_state"]))
                 for key in state["fan_state"]:
                     logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE fan set fan:%s#" % str(state["fan_state"].get(key, "")))
-                    gcode.run_script(state["fan_state"].get(key, ""))
-                # gcode.run_script(state["fan_state"])
+                    gcode.run_script_from_command(state["fan_state"].get(key, ""))
+                # gcode.run_script_from_command(state["fan_state"])
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE before G28 X Y self.last_position:%s" % str(self.last_position))
-            gcode.run_script("G28 X Y")
+            gcode.run_script_from_command("G28 X Y")
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE after G28 X Y self.last_position:%s" % str(self.last_position))
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE before BED_MESH_PROFILE LOAD='default'")
-            gcode.run_script('BED_MESH_PROFILE LOAD="default"')
+            gcode.run_script_from_command('BED_MESH_PROFILE LOAD="default"')
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE after BED_MESH_PROFILE LOAD='default'")
             x = self.last_position[0]
             y = self.last_position[1]
@@ -332,16 +332,16 @@ class GCodeMove:
             speed = self.speed
             self.last_position[:3] = state['last_position'][:3]
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE G1 X%s Y%s F3000" % (state['last_position'][0], state['last_position'][1]))
-            gcode.run_script("G1 X%s Y%s F3000" % (state['last_position'][0], state['last_position'][1]))
+            gcode.run_script_from_command("G1 X%s Y%s F3000" % (state['last_position'][0], state['last_position'][1]))
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE move_with_transform:%s, speed:%s" % (self.last_position, speed))
             self.move_with_transform(self.last_position, speed)
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE G1 X%s Y%s F3000" % (state['last_position'][0], state['last_position'][1]))
-            gcode.run_script("G1 X%s Y%s F3000" % (state['last_position'][0], state['last_position'][1]))
+            gcode.run_script_from_command("G1 X%s Y%s F3000" % (state['last_position'][0], state['last_position'][1]))
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE M400")
-            gcode.run_script("M400")
+            gcode.run_script_from_command("M400")
             if state["M204"]:
                 logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE SET M204:%s#" % state["M204"])
-                gcode.run_script(state["M204"])
+                gcode.run_script_from_command(state["M204"])
             self.absolute_extrude = state['absolute_extrude']
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE done")
         except Exception as err:

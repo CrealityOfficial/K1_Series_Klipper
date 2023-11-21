@@ -4,6 +4,7 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import os, json, logging
+from .tool import reportInformation
 
 class PauseResume:
     def __init__(self, config):
@@ -152,6 +153,7 @@ class PauseResume:
         self.send_pause_command()
         self.gcode.run_script_from_command("SAVE_GCODE_STATE NAME=PAUSE_STATE")
         self.is_paused = True
+        reportInformation("key601")
     def send_resume_command(self):
         if self.sd_paused:
             # Printing from virtual sd, run pause command
@@ -180,6 +182,7 @@ class PauseResume:
             with open(self.v_sd.print_file_name_path, "w") as f:
                 f.write(json.dumps(result))
                 f.flush()
+        reportInformation("key602")
     cmd_CLEAR_PAUSE_help = (
         "Clears the current paused state without resuming the print")
     def cmd_CLEAR_PAUSE(self, gcmd):
@@ -191,6 +194,7 @@ class PauseResume:
         else:
             gcmd.respond_info("action:cancel")
         self.cmd_CLEAR_PAUSE(gcmd)
+        reportInformation("key603")
 
 def load_config(config):
     return PauseResume(config)

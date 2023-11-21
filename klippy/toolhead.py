@@ -228,6 +228,8 @@ class ToolHead:
         self.max_accel_to_decel = self.requested_accel_to_decel
         self.square_corner_velocity = config.getfloat(
             'square_corner_velocity', 5., minval=0.)
+        self.square_corner_max_velocity = config.getfloat(
+            'square_corner_max_velocity', 200., minval=0.)
         self.junction_deviation = 0.
         self._calc_junction_deviation()
         # Print time tracking
@@ -601,6 +603,8 @@ class ToolHead:
         if max_accel is not None:
             self.max_accel = max_accel
         if square_corner_velocity is not None:
+            if square_corner_velocity > self.square_corner_max_velocity:
+                square_corner_velocity = self.square_corner_max_velocity
             self.square_corner_velocity = square_corner_velocity
         if requested_accel_to_decel is not None:
             self.requested_accel_to_decel = requested_accel_to_decel
