@@ -10,6 +10,6 @@ Used on Creality K1 series devices
 
 We are https://github.com/Klipper3d/klipper/ Updated relevant functions on the basis
 
-release： https://github.com/CrealityOfficial/K1_Series_Klipper/releases/tag/V1.3.2.1
+release： https://github.com/CrealityOfficial/K1_Series_Klipper/releases
 
 firmware-recovery-tool: https://github.com/CrealityOfficial/K1_Series_Annex/releases/tag/V1.0.0
