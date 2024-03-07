@@ -963,8 +963,8 @@ class Creality(BaseSlicer):
 
     def parse_filament_weight_total(self) -> Optional[float]:
         filament_total = _regex_find_first(
-            r";Filament used:(\d+\.?\d*)m", self.footer_data)
-        filament_weight_total = filament_total * 5.88
+            r";Filament Weight:(\d+\.?\d*)", self.footer_data)
+        filament_weight_total = filament_total
         return filament_weight_total
 
     def parse_estimated_time(self) -> Optional[float]:

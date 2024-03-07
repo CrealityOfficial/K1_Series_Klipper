@@ -625,7 +625,7 @@ class MCU:
         if msg == "Timer too close":
             logging.error("msg is Timer too close!!!")
             code_key_string = "key90"
-        elif msg == "Missed scheduling of next":
+        elif msg == "Missed scheduling of next ":
             code_key_string = "key91"
         elif msg == "ADC out of range":
             code_key_string = "key92"
@@ -636,19 +636,35 @@ class MCU:
             if extruder_obj and extruder_obj.heater.smoothed_temp < 0:
                 msg += " extruder_temp:%s" % round(extruder_obj.heater.smoothed_temp, 2)
                 code_key_string = "key509"
+            elif extruder_obj and extruder_obj.heater.smoothed_temp > 500:
+                msg += " extruder_temp:%s" % round(extruder_obj.heater.smoothed_temp, 2)
+                code_key_string = "key515"
             if heater_bed_obj and heater_bed_obj.heater.smoothed_temp < 0:
                 msg += " heater_bed_temp:%s" % round(heater_bed_obj.heater.smoothed_temp, 2)
                 code_key_string = "key510"
+            elif heater_bed_obj and heater_bed_obj.heater.smoothed_temp > 500:
+                msg += " heater_bed_temp:%s" % round(heater_bed_obj.heater.smoothed_temp, 2)
+                code_key_string = "key516"
             if chamber_temp_obj and chamber_temp_obj.last_temp < 0:
                 msg += " chamber_temp:%s" % round(chamber_temp_obj.last_temp, 2)
                 code_key_string = "key511"
+            elif chamber_temp_obj and chamber_temp_obj.last_temp > 500:
+                msg += " chamber_temp:%s" % round(chamber_temp_obj.last_temp, 2)
+                code_key_string = "key517"
             if mcu_temp_obj and mcu_temp_obj.last_temp < 0:
                 msg += " mcu_temp:%s" % round(mcu_temp_obj.last_temp, 2)
                 code_key_string = "key512"
+            elif mcu_temp_obj and mcu_temp_obj.last_temp > 500:
+                msg += " mcu_temp:%s" % round(mcu_temp_obj.last_temp, 2)
+                code_key_string = "key518"
         elif msg == "Rescheduled timer in the past":
             code_key_string = "key93"
         elif msg == "Command request":
             code_key_string = "key94"
+        if code_key_string in ["key510", "key516", "key511", "key517"]:
+            gcode = self._printer.lookup_object('gcode')
+            gcode.respond_info("""{"code": "%s", "msg":"%s", "values": []}""" % (code_key_string, prefix + msg + error_help(msg)))
+            return
         self._printer.invoke_async_shutdown(
             """{"code": "%s", "msg":"%s", "values": []}""" % (code_key_string, prefix + msg + error_help(msg)))
     def _handle_starting(self, params):

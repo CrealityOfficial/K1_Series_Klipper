@@ -109,6 +109,7 @@ class BedMesh:
         # setup persistent storage
         self.pmgr = ProfileManager(config, self)
         self.save_profile = self.pmgr.save_profile
+        self.load_profile = self.pmgr.load_profile
         # register gcodes
         self.gcode.register_command(
             'BED_MESH_OUTPUT', self.cmd_BED_MESH_OUTPUT,
@@ -128,11 +129,31 @@ class BedMesh:
         self.gcode.register_command(
             'BED_MESH_RESTORE', self.cmd_BED_MESH_RESTORE,
             desc=self.cmd_BED_MESH_RESTORE_help)
+        webhooks = self.printer.lookup_object('webhooks')
+        webhooks.register_endpoint("get_mesh", self._get_mesh)
+        webhooks.register_endpoint("update_mesh", self.update_mesh)
         # Register transform
         gcode_move = self.printer.load_object(config, 'gcode_move')
         gcode_move.set_move_transform(self)
         # initialize status dict
+        self.update_status()  
+    def _get_mesh(self, web_request):
+        probed_matrix = [[]]
+        try:
+            probed_matrix = self.z_mesh.get_probed_matrix()
+        except Exception as err:
+            logging.error(err)
+        web_request.send({'probed_matrix': probed_matrix})
+    def update_mesh(self, web_request):
+        probed_matrix = web_request.get("probed_matrix", [[]])
+        self.z_mesh.update_mesh_probed_matrix(probed_matrix)
+        self.set_mesh(self.z_mesh)
         self.update_status()
+        self.save_profile(self.pmgr.get_current_profile())
+        self.load_profile(self.pmgr.get_current_profile())
+        self.gcode.run_script_from_command('CXSAVE_CONFIG')
+        probed_matrix = self.z_mesh.get_probed_matrix()
+        web_request.send({'probed_matrix': probed_matrix})
     def handle_connect(self):
         self.toolhead = self.printer.lookup_object('toolhead')
         self.bmc.print_generated_points(logging.info)
@@ -882,6 +903,9 @@ class ZMesh:
             return [[round(z, 6) for z in line]
                     for line in self.probed_matrix]
         return [[]]
+    def update_mesh_probed_matrix(self, probed_matrix):
+        if self.probed_matrix is not None:
+            self.probed_matrix = tuple(map(tuple, probed_matrix))
     def get_mesh_params(self):
         return self.mesh_params
     def print_probed_matrix(self, print_func):

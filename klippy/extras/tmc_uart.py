@@ -248,5 +248,4 @@ class MCU_TMC_uart:
                 self.ifcnt = self._do_get_register("IFCNT")
                 if self.ifcnt == (ifcnt + 1) & 0xff:
                     return
-        raise self.printer.command_error(
-            "Unable to write tmc uart '%s' register %s" % (self.name, reg_name))
+        raise self.printer.command_error("""{"code":"key570", "msg":"Unable to write tmc uart '%s' register %s"}""" % (self.name, reg_name))

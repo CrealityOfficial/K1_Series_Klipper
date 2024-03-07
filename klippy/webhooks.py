@@ -5,7 +5,6 @@
 # This file may be distributed under the terms of the GNU GPLv3 license
 import logging, socket, os, sys, errno, json, collections
 import gcode
-from extras.tool import reportInformation
 
 REQUEST_LOG_SIZE = 20
 
@@ -234,7 +233,7 @@ class ClientConnection:
                 logging.error("process_received 2 e:%s" % str(e))
                 data = b""
             else:
-                logging.error("process_received 3 e.errno != errno.EBADF")
+                logging.error("process_received 3 %s" % str(e.errno))
                 return
         if not data:
             logging.error("process_received 4 not data Socket Closed")
@@ -261,13 +260,11 @@ class ClientConnection:
             func(web_request)
         except self.printer.command_error as e:
             web_request.set_error(WebRequestError(str(e)))
-            reportInformation(str(e))
         except Exception as e:
             msg = ("Internal Error on WebRequest: %s"
                    % (web_request.get_method()))
             logging.exception(msg)
             web_request.set_error(WebRequestError(str(e)))
-            reportInformation(str(e))
             self.printer.invoke_shutdown(msg)
         result = web_request.finish()
         if result is None:
@@ -307,6 +304,7 @@ class WebHooks:
         self._endpoints = {"list_endpoints": self._handle_list_endpoints}
         self._remote_methods = {}
         self._mux_endpoints = {}
+        self.register_endpoint("shakehands", self._handle_shakehands_request)
         self.register_endpoint("info", self._handle_info_request)
         self.register_endpoint("emergency_stop", self._handle_estop_request)
         self.register_endpoint("register_remote_method",
@@ -347,6 +345,19 @@ class WebHooks:
 
     def _handle_list_endpoints(self, web_request):
         web_request.send({'endpoints': list(self._endpoints.keys())})
+
+    def _handle_shakehands_request(self, web_request):
+        try:
+            state_message, state = self.printer.get_state_message()
+            response = {"state": state, "state_message": state_message}
+            curtime = self.printer.get_reactor().monotonic()
+            web_request_id = web_request.id
+            response["shakehands_id"] = web_request_id
+            response["curtime"] = curtime
+            web_request.send(response)
+        except Exception as err:
+            err_msg = "_handle_shakehands_request err " + str(err)
+            logging.error(err_msg)
 
     def _handle_info_request(self, web_request):
         client_info = web_request.get_dict('client_info', None)

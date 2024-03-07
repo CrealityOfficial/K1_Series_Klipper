@@ -184,6 +184,22 @@ class GCodeMove:
         value = gcmd.get_float('S', 100., above=0.) / (60. * 100.)
         self.speed = self._get_gcode_speed() * value
         self.speed_factor = value
+        import json
+        try:
+            SAVE = int(gcmd.get('SAVE', 0))
+            speed_S = int(gcmd.get_float('S', 100., above=0.))
+            v_sd = self.printer.lookup_object('virtual_sdcard')
+            speed_mode_path = v_sd.speed_mode_path
+            if SAVE==1:
+                result = {}
+                result["speed_mode"] = 1
+                result["value"] = speed_S
+                with open(speed_mode_path, "w") as f:
+                    f.write(json.dumps(result))
+                    f.flush()
+        except Exception as err:
+            err_msg = "cmd_M220 err %s" % str(err)
+            logging.error(err_msg)
     def cmd_M221(self, gcmd):
         # Set extrude factor override percentage
         new_extrude_factor = gcmd.get_float('S', 100., above=0.) / 100.
@@ -191,6 +207,20 @@ class GCodeMove:
         e_value = (last_e_pos - self.base_position[3]) / self.extrude_factor
         self.base_position[3] = last_e_pos - e_value * new_extrude_factor
         self.extrude_factor = new_extrude_factor
+        import json
+        try:
+            SAVE = int(gcmd.get('SAVE', 0))
+            speed_S = int(gcmd.get_float('S', 100., above=0.))
+            v_sd = self.printer.lookup_object('virtual_sdcard')
+            if SAVE==1:
+                result = {}
+                result["value"] = speed_S
+                with open(v_sd.flow_rate_path, "w") as f:
+                    f.write(json.dumps(result))
+                    f.flush()
+        except Exception as err:
+            err_msg = "cmd_M221 err %s" % str(err)
+            logging.error(err_msg)
     cmd_SET_GCODE_OFFSET_help = "Set a virtual offset to g-code positions"
     def cmd_SET_GCODE_OFFSET(self, gcmd):
         move_delta = [0., 0., 0., 0.]
@@ -211,12 +241,14 @@ class GCodeMove:
             for pos, delta in enumerate(move_delta):
                 self.last_position[pos] += delta
             self.move_with_transform(self.last_position, speed)
-    def recordPrintFileName(self, path, file_name, fan_state={}, filament_used=0, last_print_duration=0):
+    def recordPrintFileName(self, path, file_name, fan_state={}, filament_used=0, last_print_duration=0, pressure_advance=""):
         import json, os
         fan = {}
         M204_accel = ""
         old_filament_used = 0
         old_last_print_duration = 0
+        old_pressure_advance = ""
+        set_gcode_offset = -5
         if os.path.exists(path):
             with open(path, "r") as f:
                 result = (json.loads(f.read()))
@@ -225,6 +257,8 @@ class GCodeMove:
                 M204_accel = result.get("M204", "")
                 old_filament_used = result.get("filament_used", 0)
                 old_last_print_duration = result.get("last_print_duration", 0)
+                set_gcode_offset = result.get("SET_GCODE_OFFSET", -5)
+                old_pressure_advance = result.get("pressure_advance", "")
         if fan_state.get("M106 S") and fan_state.get("M106 S", "") != fan.get("M106 S", ""):
             fan["M106 S"] = fan_state.get("M106 S")
         elif fan_state.get("M106 P0") and fan_state.get("M106 P0", "") != fan.get("M106 P0", ""):
@@ -242,6 +276,10 @@ class GCodeMove:
             pass
         else:
             last_print_duration = old_last_print_duration
+        if pressure_advance and pressure_advance != old_pressure_advance:
+            pass
+        else:
+            pressure_advance = old_pressure_advance
         data = {
             'file_path': file_name,
             'absolute_coord': self.absolute_coord,
@@ -250,7 +288,9 @@ class GCodeMove:
             'fan_state': fan,
             'M204': M204_accel,
             'filament_used': filament_used,
-            'last_print_duration': last_print_duration
+            'last_print_duration': last_print_duration,
+            'SET_GCODE_OFFSET': set_gcode_offset,
+            'pressure_advance': pressure_advance
         }
         with open(path, "w") as f:
             f.write(json.dumps(data))
@@ -274,7 +314,8 @@ class GCodeMove:
                 "variable_z_safe_pause": 0,
                 "M204": "",
                 "filament_used": 0,
-                "last_print_duration": 0
+                "last_print_duration": 0,
+                "pressure_advance": ""
             }
             import os, json
             base_position_e = -1
@@ -290,6 +331,8 @@ class GCodeMove:
                 state["fan_state"] = file_info.get("fan_state", {})
                 state["variable_z_safe_pause"] = file_info.get("variable_z_safe_pause", 0)
                 state["M204"] = file_info.get("M204", "")
+                state["SET_GCODE_OFFSET"] = file_info.get("SET_GCODE_OFFSET", -5)
+                state["pressure_advance"] = file_info.get("pressure_advance", "")
             state["last_position"] = [XYZE["X"], XYZE["Y"], XYZE["Z"], XYZE["E"]+base_position_e]
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE state:%s" % str(state))
 
@@ -303,8 +346,8 @@ class GCodeMove:
             self.extrude_factor = state['extrude_factor']
             # Restore the relative E position
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE base_position:%s" % str(self.base_position))
-            e_diff = self.last_position[3] - state['last_position'][3] - 0.7
-            self.base_position[3] += e_diff
+            e_diff = self.last_position[3] - state['last_position'][3] - 0.7 + 5.0
+            self.base_position[3] += e_diff 
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE self.last_position[3]:%s, state['last_position'][3]:%s, e_diff:%s, \
                          base_position[3]:%s" % (self.last_position[3], state['last_position'][3], e_diff, self.base_position[3]))
             # Move the toolhead back if requested
@@ -343,6 +386,37 @@ class GCodeMove:
                 logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE SET M204:%s#" % state["M204"])
                 gcode.run_script_from_command(state["M204"])
             self.absolute_extrude = state['absolute_extrude']
+            try:
+                if os.path.exists(gcode.exclude_object_info):
+                    with open(gcode.exclude_object_info, "r") as f:
+                        exclude_object_cmds = json.loads(f.read())
+                        EXCLUDE_OBJECT_DEFINE = exclude_object_cmds.get("EXCLUDE_OBJECT_DEFINE", [])
+                        EXCLUDE_OBJECT = exclude_object_cmds.get("EXCLUDE_OBJECT", [])
+                        for line in EXCLUDE_OBJECT_DEFINE:
+                            gcode.run_script_from_command(line)
+                        for line in EXCLUDE_OBJECT:
+                            gcode.run_script_from_command(line)
+                        gcode.run_script_from_command("M400")
+            except Exception as err:
+                logging.exception("RESTORE EXCLUDE_OBJECT err:%s" % err)
+            try:
+                if state["SET_GCODE_OFFSET"] != -5:
+                    if state["SET_GCODE_OFFSET"] > 0:
+                        params = "-%.3f" % state["SET_GCODE_OFFSET"]
+                    elif state["SET_GCODE_OFFSET"] < 0:
+                        params = "%.3f" % abs(state["SET_GCODE_OFFSET"])
+                    else:
+                        params = "0"
+                    gcode.run_script_from_command("SET_GCODE_OFFSET Z_ADJUST=%s MOVE=0" % params)
+                    gcode.run_script_from_command("Z_OFFSET_APPLY_PROBE")
+                    gcode.run_script_from_command("M400")
+                    logging.info("power_loss SET_GCODE_OFFSET Z_ADJUST:-%s MOVE=0" % state["SET_GCODE_OFFSET"])
+            except Exception as err:
+                logging.error("RESTORE SET_GCODE_OFFSET err:%s" % err)
+            if state["pressure_advance"]:
+                gcode.run_script_from_command("M400")
+                logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE SET pressure_advance:%s#" % state["pressure_advance"])
+                gcode.run_script_from_command(state["pressure_advance"])
             logging.info("power_loss cmd_CX_RESTORE_GCODE_STATE done")
         except Exception as err:
             logging.exception("cmd_CX_RESTORE_GCODE_STATE err:%s" % err)

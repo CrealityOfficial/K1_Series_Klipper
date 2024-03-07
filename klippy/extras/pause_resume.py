@@ -99,6 +99,8 @@ class PauseResume:
             response["file_state"] = False
             response["eeprom_state"] = False
             logging.info("current printer state:%s" % print_stats.state)
+        if os.path.exists(self.gcode.exclude_object_info) and (response["file_state"]==False or response["eeprom_state"]==False):
+            os.remove(self.gcode.exclude_object_info)
         web_request.send(response)
         return response
     
@@ -106,6 +108,8 @@ class PauseResume:
         from subprocess import call
         if os.path.exists(self.v_sd.print_file_name_path):
             os.remove(self.v_sd.print_file_name_path)
+        if os.path.exists(self.gcode.exclude_object_info):
+            os.remove(self.gcode.exclude_object_info)
         call("sync", shell=True)
         bl24c16f = self.printer.lookup_object('bl24c16f') if "bl24c16f" in self.printer.objects else None
         power_loss_switch = False

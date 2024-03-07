@@ -256,10 +256,13 @@ run_tasks(void)
                 // Sleep processor (only run timers) until tasks woken
                 SchedStatus.tasks_status = TS_IDLE;
                 do {
-                    //irq_wait();
+#if CONFIG_MACH_LINUX
+                    irq_wait();
+#else
 					asm volatile("cpsie i" ::: "memory");
 					extern void prtouch_task(void);
 					prtouch_task();
+#endif
                 } while (SchedStatus.tasks_status != TS_REQUESTED);
             }
             irq_enable();

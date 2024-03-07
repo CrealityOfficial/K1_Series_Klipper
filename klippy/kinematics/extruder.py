@@ -3,7 +3,7 @@
 # Copyright (C) 2016-2022  Kevin O'Connor <kevin@koconnor.net>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import math, logging
+import math, logging, os
 import stepper, chelper
 
 class ExtruderStepper:
@@ -101,6 +101,13 @@ class ExtruderStepper:
                % (pressure_advance, smooth_time))
         self.printer.set_rollover_info(self.name, "%s: %s" % (self.name, msg))
         gcmd.respond_info(msg, log=False)
+        try:
+            v_sd = self.printer.lookup_object('virtual_sdcard')
+            gcode_move = self.printer.lookup_object('gcode_move')
+            if os.path.exists(v_sd.print_file_name_path) and v_sd.current_file:
+                gcode_move.recordPrintFileName(v_sd.print_file_name_path, v_sd.current_file.name, pressure_advance="SET_PRESSURE_ADVANCE ADVANCE=%s SMOOTH_TIME=%s" % (pressure_advance, smooth_time))
+        except Exception as err:
+            logging.error(err)
     cmd_SET_E_ROTATION_DISTANCE_help = "Set extruder rotation distance"
     def cmd_SET_E_ROTATION_DISTANCE(self, gcmd):
         rotation_dist = gcmd.get_float('DISTANCE', None)
