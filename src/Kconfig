@@ -106,6 +106,10 @@ config CANBUS_FREQUENCY
 config CANBUS_FILTER
     bool
     default y if CANSERIAL
+config WANT_SOFTWARE_SPI
+    bool
+    depends on HAVE_GPIO && HAVE_GPIO_SPI
+    default y
 
 # Support setting gpio state at startup
 
