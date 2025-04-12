@@ -24,7 +24,7 @@ static const uint8_t adc_pin[] = {
     GPIO('B',0),GPIO('B',1),GPIO('C',0),GPIO('C',1),
     GPIO('C',2),GPIO('C',3),GPIO('C',4),GPIO('C',5),
     ADC_TEMPERATURE_PIN
-];
+};
 
 
 #define _ADC_STAT 	ADC_STAT
