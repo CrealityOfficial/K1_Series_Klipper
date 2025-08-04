@@ -98,7 +98,7 @@ class CUSTOM_MACRO:
     cmd_CX_ROUGH_G28_help = "rough G28"
     def cmd_CX_ROUGH_G28(self, gcmd):
         self.extruder_temp = gcmd.get_float('EXTRUDER_TEMP', default=self.default_extruder_temp, minval=180.0, maxval=320.0)
-        self.g28_ext_temp = self.extruder_temp - 70
+        self.g28_ext_temp = self.extruder_temp - 90
         if self.g28_ext_temp > 180.0:
             self.g28_ext_temp = 180.0
         try:

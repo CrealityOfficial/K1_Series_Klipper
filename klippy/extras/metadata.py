@@ -907,10 +907,11 @@ class Creality(BaseSlicer):
         }
         pattern = r'Version : V([\d\.]+)'
         match_version = re.search(pattern, data)
+        if not match_version:
+            match_version = re.search(r'Creality_Print V([\d\.]+)', data)
         slicer_version = match_version.group(1) if match_version else "1.0"
         for name, expr in aliases.items():
             match = re.search(expr, data)
-            # ;Creality Print Version : V4.3.7.6456
             if match:
                 return {
                     'slicer': name,
@@ -919,21 +920,24 @@ class Creality(BaseSlicer):
         return None
 
     def parse_first_layer_height(self) -> Optional[float]:
-        return _regex_find_first(
-            r";MINZ:(\d+\.?\d*)", self.footer_data)
+        first_layer_height = _regex_find_first(r";MINZ:(\d+\.?\d*)", self.header_data)
+        if not first_layer_height:
+            first_layer_height = _regex_find_first(r";MINZ:(\d+\.?\d*)", self.footer_data)
+        return first_layer_height
 
     def parse_model_info(self):
         return get_print_file_metadata(self.path)
 
     def parse_layer_height(self) -> Optional[float]:
-        pattern = r";Layer\sheight:\s(\d+\.?\d*)"
-        self.layer_height = _regex_find_first(
-            pattern, self.footer_data)
+        pattern = r";Layer height:\s*(\d+\.?\d*)"
+        self.layer_height = _regex_find_first(pattern, self.header_data)
+        if not self.layer_height:
+            self.layer_height = _regex_find_first(r"; layer_height = (\d+\.\d*)", self.footer_data)
         return self.layer_height
 
     def parse_object_height(self) -> Optional[float]:
         matches = re.findall(
-            r";MAXZ:(\d+\.?\d*)", self.footer_data)
+            r";MAXZ:(\d+\.?\d*)", self.header_data)
         if matches:
             try:
                 matches = [float(m) for m in matches]
@@ -941,11 +945,17 @@ class Creality(BaseSlicer):
                 pass
             else:
                 return max(matches)
+        else:
+            max_z_height = _regex_find_first(r"; max_z_height: (\d+\.\d*)", self.header_data)
+            if max_z_height:
+                return max_z_height
         return self._parse_max_float(r"G1\sZ\d+\.\d*\sF", self.footer_data)
 
     def parse_layer_count(self) -> Optional[int]:
-        return _regex_find_int(
-            r";LAYER_COUNT\:(\d+)", self.header_data)
+        layer_count = _regex_find_int(r";LAYER_COUNT\:(\d+)", self.header_data)
+        if not layer_count:
+            layer_count = _regex_find_int(r"; total layer number: (\d+)", self.header_data)
+        return layer_count
 
     def parse_filament_type(self) -> Optional[str]:
         return _regex_find_string(
@@ -957,30 +967,30 @@ class Creality(BaseSlicer):
 
     def parse_filament_total(self) -> Optional[float]:
         filament_total = _regex_find_first(
-            r";Filament used:(\d+\.?\d*)m", self.footer_data)
-        filament_total = filament_total * 1000
+            r";Filament used:(\d+\.?\d*)m", self.header_data)
+        if filament_total:
+            filament_total = filament_total * 1000
         return filament_total
 
     def parse_filament_weight_total(self) -> Optional[float]:
-        filament_total = _regex_find_first(
-            r";Filament Weight:(\d+\.?\d*)", self.footer_data)
-        filament_weight_total = filament_total
+        filament_weight_total = _regex_find_first(
+            r";Filament Weight:(\d+\.?\d*)", self.header_data)
+        if filament_weight_total:
+            filament_weight_total = filament_weight_total * 5.88
         return filament_weight_total
 
     def parse_estimated_time(self) -> Optional[float]:
         total_time = _regex_find_first(
-            r";TIME:(\d+)", self.footer_data)
+            r";TIME:(\d+)", self.header_data)
         return total_time
 
     def parse_first_layer_extr_temp(self) -> Optional[float]:
-        # return _regex_find_first(
-        #     r"; first_layer_temperature = (\d+\.?\d*)", self.footer_data)
         return _regex_find_first(
-            r";Print Temperature:(\d+\.?\d*)", self.footer_data)
+            r";Print Temperature:(\d+\.?\d*)", self.header_data)
 
     def parse_first_layer_bed_temp(self) -> Optional[float]:
         return _regex_find_first(
-            r";Bed Temperature:(\d+\.?\d*)", self.footer_data)
+            r";Bed Temperature:(\d+\.?\d*)", self.header_data)
 
 
 READ_SIZE = 512 * 1024
@@ -1068,11 +1078,8 @@ def get_slicer(file_path: str) -> Tuple[BaseSlicer, Dict[str, str]]:
             slicer = UnknownSlicer(file_path)
             ident = slicer.check_identity(header_data)
         if size > READ_SIZE * 2:
-            if type(slicer) == Creality:
-                footer_data = header_data
-            else:
-                f.seek(size - READ_SIZE)
-                footer_data = f.read()
+            f.seek(size - READ_SIZE)
+            footer_data = f.read()
         elif size > READ_SIZE:
             if type(slicer) == Creality:
                 footer_data = header_data

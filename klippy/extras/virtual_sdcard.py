@@ -7,7 +7,7 @@ import os, logging, io, json, time
 from .tool import reportInformation
 
 VALID_GCODE_EXTS = ['gcode', 'g', 'gco']
-LAYER_KEYS = [";LAYER:", "; layer:", "; LAYER:", ";AFTER_LAYER_CHANGE", ";LAYER_CHANGE"]
+LAYER_KEYS = ["; layer #", ";LAYER:", "; layer:", "; LAYER:", ";AFTER_LAYER_CHANGE", ";LAYER_CHANGE", "; CHANGE_LAYER"]
 
 class VirtualSD:
     def __init__(self, config):
