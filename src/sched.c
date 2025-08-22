@@ -261,7 +261,7 @@ run_tasks(void)
 #else
 					asm volatile("cpsie i" ::: "memory");
 					extern void prtouch_task(void);
-					prtouch_task();
+					//prtouch_task();
 #endif
                 } while (SchedStatus.tasks_status != TS_REQUESTED);
             }

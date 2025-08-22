@@ -260,6 +260,8 @@ class HandleCommandGeneration:
             '_DECL_OUTPUT': self.decl_output
         }
     def decl_command(self, req):
+        if "prtouch" in req or "get_pres" in req or "get_steps" in req or "step_prtouch" in req:
+            return
         funcname, flags, msgname = req.split()[1:4]
         if msgname in self.commands:
             error("Multiple definitions for command '%s'" % msgname)
