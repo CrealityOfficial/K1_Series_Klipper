@@ -5,6 +5,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging, math
 import stepper
+import inspect
 
 class CoreXYKinematics:
     def __init__(self, toolhead, config):
@@ -43,6 +44,16 @@ class CoreXYKinematics:
             rail.set_position(newpos)
             if i in homing_axes:
                 self.limits[i] = rail.get_range()
+    def get_max_z_velocity(self):
+        return self.max_z_velocity
+    def get_max_z_accel(self):
+        return self.max_z_accel
+    def set_max_z_accel(self, max_accel):
+        for frame in inspect.stack():
+             print(frame.function)
+        self.max_z_accel = max_accel
+    def set_max_z_velocity(self, max_velocity):
+        self.max_z_velocity = max_velocity
     def note_z_not_homed(self):
         # Helper for Safe Z Home
         self.limits[2] = (1.0, -1.0)

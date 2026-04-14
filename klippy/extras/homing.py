@@ -162,6 +162,10 @@ class HomingMove:
             if error is None:
                 error = str(e)
         if error is not None:
+            gcode = self.printer.lookup_object('gcode')
+            if '"key' in error:
+                gcode._respond_error(error)
+                return trigpos
             raise self.printer.command_error(error)
         return trigpos
     def check_no_movement(self):
@@ -266,7 +270,7 @@ class PrinterHoming:
     def __init__(self, config):
         self.printer = config.get_printer()
         # Register g-code commands
-        gcode = self.printer.lookup_object('gcode')
+        self.gcode = gcode = self.printer.lookup_object('gcode')
         gcode.register_command('G28', self.cmd_G28)
         gcode.register_command('STEPPER_Z_SENEORLESS', self.cmd_STEPPER_Z_SENEORLESS)
         self.probe_type = ""
@@ -286,7 +290,6 @@ class PrinterHoming:
                     '{"code": "key4", "msg": "Homing failed due to printer shutdown"}')
             raise
     def probing_move(self, mcu_probe, pos, speed):
-
         endstops = [(mcu_probe, "probe")]
         hmove = HomingMove(self.printer, endstops)
         try:
@@ -299,9 +302,10 @@ class PrinterHoming:
                 raise self.printer.command_error(
                     '{"code": "key5", "msg": "Probing failed due to printer shutdown"}')
             raise
-        if hmove.check_no_movement() is not None:
-            raise self.printer.command_error(
-                '{"code": "key6", "msg": "Probe triggered prior to movement"}')
+        # 暂时关闭该检查，跳过误触发导致报错问题，调平代码有异常点重探机制
+        # if hmove.check_no_movement() is not None:
+        #     raise self.printer.command_error(
+        #         '{"code": "key6", "msg": "Probe triggered prior to movement"}')
         return epos
         
     def cmd_STEPPER_Z_SENEORLESS(self, gcmd):

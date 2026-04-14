@@ -4,9 +4,11 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import time
+import logging
 
 class CUSTOM_MACRO:
     def __init__(self, config):
+        self.config = config
         self.printer = config.get_printer()
         self.gcode = self.printer.lookup_object('gcode')
         self.pheaters = None
@@ -16,7 +18,7 @@ class CUSTOM_MACRO:
         self.prtouch = None
         self.gcode.register_command("CX_PRINT_LEVELING_CALIBRATION", self.cmd_CX_PRINT_LEVELING_CALIBRATION, desc=self.cmd_CX_PRINT_LEVELING_CALIBRATION_help)
         self.gcode.register_command("CX_CLEAN_CALIBRATION_FLAGS", self.cmd_CX_CLEAN_CALIBRATION_FLAGS, desc=self.cmd_CX_CLEAN_CALIBRATION_FLAGS_help)
-        self.gcode.register_command("CX_PRINT_DRAW_ONE_LINE", self.cmd_CX_PRINT_DRAW_ONE_LINE, desc=self.cmd_CX_PRINT_DRAW_ONE_LINE_help)
+        self.gcode.register_command("CX_PRINT_DRAW_ONE_LINE", self.cmd_CX_PRINT_DRAW_ONE_LINE_V2, desc=self.cmd_CX_PRINT_DRAW_ONE_LINE_help)
         self.gcode.register_command("CX_ROUGH_G28", self.cmd_CX_ROUGH_G28, desc=self.cmd_CX_ROUGH_G28_help)
         self.gcode.register_command("CX_NOZZLE_CLEAR", self.cmd_CX_NOZZLE_CLEAR, desc=self.cmd_CX_NOZZLE_CLEAR_help)
         self.default_extruder_temp = config.getfloat("default_extruder_temp", default=240.0)
@@ -50,10 +52,92 @@ class CUSTOM_MACRO:
         pass
 
     cmd_CX_PRINT_DRAW_ONE_LINE_help = "Draw one line before printing"
-    def cmd_CX_PRINT_DRAW_ONE_LINE(self, gcmd):
-        self.gcode.run_script_from_command('G28 X Y')
+    def cmd_CX_PRINT_DRAW_ONE_LINE_V2(self, gcmd):
+        # if self.config.has_section("prtouch_v3"):
+        self.extruder_temp = gcmd.get_float('EXTRUDER_TEMP', default=self.default_extruder_temp, minval=180.0, maxval=320.0)
+        self.bed_temp = gcmd.get_float('BED_TEMP', default=self.default_bed_temp, minval=0.0, maxval=130.0)
+        need_g28 = gcmd.get_int("NEED_G28",default=1)
+        need_retraction = gcmd.get_int("NEED_RETRACTION",default=0)
+        if need_g28:
+            self.gcode.run_script_from_command('G28 X Y')
+
         self.gcode.run_script_from_command('M83')
-        self.gcode.run_script_from_command('G1 X10 Y10 Z2 F6000')
+
+        # self.gcode.run_script_from_command('G1 X-2 F6000\n M400')
+        self.gcode.run_script_from_command('G1 X-1.8 Y0 Z2 F6000')
+        if need_retraction:
+            logging.info(f'CX_PRINT_DRAW_ONE_LINE:{need_retraction}')
+            self.gcode.run_script_from_command(f'G91\n G1 E{need_retraction} F{2400}\n G90')
+        self.gcode.run_script_from_command('G1 Z0.1 F600')
+        self.pheaters = self.printer.lookup_object('heaters')
+        self.heater_hot = self.printer.lookup_object('extruder').heater
+        self.gcode.respond_info("can_break_flag = %d" % (self.pheaters.can_break_flag))
+        self.gcode.run_script_from_command('M104 S%d' % (self.extruder_temp))
+        self.gcode.run_script_from_command('M140 S%d' % (self.bed_temp))
+        self.pheaters.set_temperature(self.heater_hot, self.extruder_temp, True)
+        self.gcode.respond_info("can_break_flag = %d" % (self.pheaters.can_break_flag))
+        while self.pheaters.can_break_flag == 1:
+            time.sleep(1)
+        self.gcode.respond_info("can_break_flag = %d" % (self.pheaters.can_break_flag))
+        if self.pheaters.can_break_flag == 3:
+            self.pheaters.can_break_flag = 0
+            self.gcode.respond_info("can_break_flag is 3")
+            self.gcode.run_script_from_command('G21')
+            self.gcode.run_script_from_command('G1 F2400 E-0.5')
+            self.gcode.run_script_from_command('SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=5')
+            self.gcode.run_script_from_command('M204 S12000')
+            self.gcode.run_script_from_command('G21')
+            self.gcode.run_script_from_command('SET_VELOCITY_LIMIT ACCEL_TO_DECEL=6000')
+            # self.gcode.run_script_from_command('SET_PRESSURE_ADVANCE ADVANCE=0.04')
+            # self.gcode.run_script_from_command('SET_PRESSURE_ADVANCE SMOOTH_TIME=0.04')
+            self.gcode.run_script_from_command('M220 S100')
+            self.gcode.run_script_from_command('M221 S100')
+            self.gcode.run_script_from_command('G1 Z2.0 F1200')
+            # self.gcode.run_script_from_command('G1 X0.1 Y20 Z0.3 F6000.0')
+            # self.gcode.run_script_from_command('G1 X0.1 Y180.0 Z0.3 F3000.0 E10.0')
+            # self.gcode.run_script_from_command('G1 X0.4 Y180.0 Z0.3 F3000.0')
+            # self.gcode.run_script_from_command('G1 X0.4 Y20.0 Z0.3 F3000.0 E10.0')
+            self.gcode.run_script_from_command('G1 X-1.7 Y20 Z0.3 F6000.0')
+            self.gcode.run_script_from_command('G1 X-1.7 Y180.0 Z0.3 F3000.0 E10.0')
+
+            self.gcode.run_script_from_command('G1 X-1.4 Y180.0 Z0.3 F3000.0')
+            self.gcode.run_script_from_command('G1 X-1.4 Y40.0 Z0.3 F3000.0 E10.0')
+
+            self.gcode.run_script_from_command('G1 X-1.1 Y180.0 Z0.3 F3000.0')
+            self.gcode.run_script_from_command('G1 X-1.1 Y60.0 Z0.3 F3000.0 E10.0')
+
+            # self.gcode.run_script_from_command('G1 X-1.0 Y180.0 Z0.3 F3000.0')
+            # self.gcode.run_script_from_command('G1 X-1.0 Y20.0 Z0.3 F3000.0 E10.0')
+
+            # self.gcode.run_script_from_command('G1 Y10.0 F3000.0')
+            self.gcode.run_script_from_command('G1 Z2.0 F600.0')
+            self.gcode.run_script_from_command('G1 Z0.3 F600.0')
+            self.gcode.run_script_from_command('G1 Z2.0 F600.0')
+            # self.gcode.run_script_from_command('G1 X0.4 Y10.0 Z0.3 F6000.0')
+            self.gcode.run_script_from_command('M82')
+            self.gcode.run_script_from_command('G92 E0')
+            # self.gcode.run_script_from_command('G1 Z2.0 F600')
+            self.gcode.run_script_from_command('G1 F12000')
+            self.gcode.run_script_from_command('G21')
+        pass
+
+    cmd_CX_PRINT_DRAW_ONE_LINE_help = "Draw one line before printing"
+    def cmd_CX_PRINT_DRAW_ONE_LINE(self, gcmd):
+        # if self.config.has_section("prtouch_v3"):
+        self.extruder_temp = gcmd.get_float('EXTRUDER_TEMP', default=self.default_extruder_temp, minval=180.0, maxval=320.0)
+        self.bed_temp = gcmd.get_float('BED_TEMP', default=self.default_bed_temp, minval=0.0, maxval=130.0)
+        need_g28 = gcmd.get_int("NEED_G28",default=1)
+        need_retraction = gcmd.get_int("NEED_RETRACTION",default=0)
+        if need_g28:
+            self.gcode.run_script_from_command('G28 X Y')
+
+        self.gcode.run_script_from_command('M83')
+
+        self.gcode.run_script_from_command('G1 X0 F6000\n M400')
+        self.gcode.run_script_from_command('G1 X0 Y0 Z2 F6000')
+        if need_retraction:
+            logging.info(f'CX_PRINT_DRAW_ONE_LINE:{need_retraction}')
+            self.gcode.run_script_from_command(f'G91\n G1 E{need_retraction} F{2400}\n G90')
         self.gcode.run_script_from_command('G1 Z0.1 F600')
         self.pheaters = self.printer.lookup_object('heaters')
         self.heater_hot = self.printer.lookup_object('extruder').heater
@@ -101,12 +185,23 @@ class CUSTOM_MACRO:
         self.g28_ext_temp = self.extruder_temp - 90
         if self.g28_ext_temp > 180.0:
             self.g28_ext_temp = 180.0
+
         try:
-            self.prtouch = self.printer.lookup_object('prtouch_v2')
-        except:
+            printer_objects = [name for name, obj in self.printer.lookup_objects()]
+            prtouch_list = ('prtouch_v3', 'prtouch_v2', 'prtouch')
+            for i in prtouch_list:
+                if i in printer_objects:
+                    self.prtouch = self.printer.lookup_object(i)
+                    gcmd.respond_info("use %s" % i)
+
+                    if i == 'prtouch_v2' or i == 'prtouch':
+                        self.prtouch.change_hot_min_temp(self.g28_ext_temp)
+                    break
+        except Exception as e:
+            gcmd.respond_info("CX_ROUGH_G28 error: %s" % str(e))
             self.prtouch = self.printer.lookup_object('prtouch')
             gcmd.respond_info("self.prtouch = prtouch")
-        self.prtouch.change_hot_min_temp(self.g28_ext_temp)
+
         self.bed_temp = gcmd.get_float('BED_TEMP', default=self.default_bed_temp, minval=0.0, maxval=130.0)
         self.leveling_calibration = gcmd.get_int('LEVELING_CALIBRATION', default=1, minval=0, maxval=1)
         self.gcode.run_script_from_command('M104 S%d' % (self.g28_ext_temp))
@@ -114,12 +209,18 @@ class CUSTOM_MACRO:
         self.gcode.run_script_from_command('M204 S500')
         self.gcode.run_script_from_command('G28')
         # self.gcode.run_script_from_command('NOZZLE_CLEAR HOT_MIN_TEMP=%d HOT_MAX_TEMP=%d BED_MAX_TEMP=%d' % (self.g28_ext_temp, self.extruder_temp - 20, self.bed_temp))
-        pass
 
     cmd_CX_NOZZLE_CLEAR_help = "nozzle clear with temperature"
     def cmd_CX_NOZZLE_CLEAR(self, gcmd):
-        self.gcode.run_script_from_command('NOZZLE_CLEAR HOT_MIN_TEMP=%d HOT_MAX_TEMP=%d BED_MAX_TEMP=%d' % (self.g28_ext_temp, self.extruder_temp - 20, self.bed_temp))
-        pass
+        bed_temp = gcmd.get_command_parameters().get("BED_TEMP")
+        bed_temp = self.default_bed_temp if bed_temp is None else float(bed_temp)
+        # bed_temp = gcmd.get_float('BED_TEMP')
+        # extruder_temp = self.default_extruder_temp if self.extruder_temp is None else self.extruder_temp is None
+        extruder_temp = self.default_extruder_temp if self.extruder_temp is None else float(self.extruder_temp)
+
+        logging.info("self.g28_ext_temp = %d self.default_extruder_temp=%d,self.bed_temp=%d,self.extruder_temp=%d",self.g28_ext_temp, self.default_extruder_temp, bed_temp, extruder_temp)
+        self.gcode.run_script_from_command('NOZZLE_CLEAR HOT_MIN_TEMP=%d HOT_MAX_TEMP=%d BED_MAX_TEMP=%d' % (self.g28_ext_temp, extruder_temp - 20, bed_temp))
+
     cmd_SET_QMODE_FLAG_help = "set qmode flag"
     def cmd_SET_QMODE_FLAG(self, gcmd):
         self.qmode_flag =  gcmd.get_int('FLAG', default=1, minval=0, maxval=1)

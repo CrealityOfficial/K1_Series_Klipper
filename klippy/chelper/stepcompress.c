@@ -63,6 +63,7 @@ struct history_steps {
     int step_count, interval, add;
 };
 
+// uint32_t pre_interval;
 
 /****************************************************************
  * Step compression
@@ -209,6 +210,7 @@ check_line(struct stepcompress *sc, struct step_move move)
 {
     if (!CHECK_LINES)
         return 0;
+
     if (!move.count || (!move.interval && !move.add && move.count > 1)
         || move.interval >= 0x80000000) {
         errorf("stepcompress o=%d i=%d c=%d a=%d: Invalid sequence"
@@ -370,6 +372,7 @@ add_move(struct stepcompress *sc, uint64_t first_clock, struct step_move *move)
     list_add_tail(&qm->node, &sc->msg_queue);
     sc->last_step_clock = last_clock;
 
+    // pre_interval = move->interval;
     // Create and store move in history tracking
     struct history_steps *hs = malloc(sizeof(*hs));
     hs->first_clock = first_clock;

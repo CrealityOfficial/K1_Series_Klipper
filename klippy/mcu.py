@@ -484,14 +484,15 @@ class RetryAsyncCommand:
             query_time = self.reactor.monotonic()
             if query_time > first_query_time + self.TIMEOUT_TIME:
                 self.serial.register_response(None, self.name, self.oid)
-                raise serialhdl.error("""{"code": "key294", "msg": "Timeout on wait for '%s' response", "values":["%s"]}"""
+                raise serialhdl.error("""{"code": "key294", "msg": "Timeout on wait for oid:%s name:'%s' response", "values":[]}"""
                                       % (self.oid, self.name))
             self.serial.raw_send(cmd, minclock, minclock, cmd_queue)
 
 # Wrapper around query commands
 class CommandQueryWrapper:
     def __init__(self, serial, msgformat, respformat, oid=None,
-                 cmd_queue=None, is_async=False, error=serialhdl.error):
+                 cmd_queue=None, is_async=False, error=serialhdl.error, printer=None):
+        self.printer = printer
         self._serial = serial
         self._cmd = serial.get_msgparser().lookup_command(msgformat)
         serial.get_msgparser().lookup_command(respformat)
@@ -510,7 +511,11 @@ class CommandQueryWrapper:
         try:
             return xh.get_response(cmds, self._cmd_queue, minclock, reqclock)
         except serialhdl.error as e:
-            raise self._error(str(e))
+            if self.printer:
+                gcode = self.printer.lookup_object('gcode')
+                gcode._respond_error(str(e))
+            else:
+                raise self._error(str(e))
     def send(self, data=(), minclock=0, reqclock=0):
         return self._do_send([self._cmd.encode(data)], minclock, reqclock)
     def send_with_preface(self, preface_cmd, preface_data=(), data=(),
@@ -597,6 +602,72 @@ class MCU:
         printer.register_event_handler("klippy:connect", self._connect)
         printer.register_event_handler("klippy:shutdown", self._shutdown)
         printer.register_event_handler("klippy:disconnect", self._disconnect)
+        self.cur_code_key = ""
+        if self._name == "mcu" or self._name == "nozzle_mcu":
+            self._do_query_timer = self._reactor.register_timer(self._do_query)
+            self._reactor.update_timer(self._do_query_timer, self._reactor.NOW)
+    def _do_query(self, eventtime):
+        try:
+            mcu_temp_obj = self._printer.lookup_object('temperature_sensor mcu_temp') if self._printer.objects.get('temperature_sensor mcu_temp') else None
+            chamber_temp_obj = self._printer.lookup_object('temperature_sensor chamber_temp') if self._printer.objects.get('temperature_sensor chamber_temp') else None
+            heater_bed_obj = self._printer.lookup_object('heater_bed') if self._printer.objects.get('heater_bed') else None
+            extruder_obj = self._printer.lookup_object('extruder') if self._printer.objects.get('extruder') else None
+            gcode = self._printer.lookup_object('gcode')
+            code_key_string = ""
+            msg = "adc out of range"
+            if self._serial.adc_out_of_range_info["mcu0"]:
+                if heater_bed_obj and heater_bed_obj.heater.smoothed_temp < 0:
+                    msg += " heater_bed_temp:%s" % round(heater_bed_obj.heater.smoothed_temp, 2)
+                    code_key_string = "key510"
+                elif heater_bed_obj and heater_bed_obj.heater.smoothed_temp > 500:
+                    msg += " heater_bed_temp:%s" % round(heater_bed_obj.heater.smoothed_temp, 2)
+                    code_key_string = "key516"
+                if code_key_string and not self._serial.adc_out_of_range_info["bed0_isReport"]:
+                    self._serial.adc_out_of_range_info["bed0_isReport"] = True
+                    gcode._respond_error("""{"code": "%s", "msg":"bed %s", "values": []}""" % (code_key_string, self._name + " " + msg))
+                code_key_string = ""
+
+                if chamber_temp_obj and chamber_temp_obj.last_temp < 0:
+                    msg += " chamber_temp:%s" % round(chamber_temp_obj.last_temp, 2)
+                    code_key_string = "key511"
+                elif chamber_temp_obj and chamber_temp_obj.last_temp > 500:
+                    msg += " chamber_temp:%s" % round(chamber_temp_obj.last_temp, 2)
+                    code_key_string = "key517"
+                if mcu_temp_obj and mcu_temp_obj.last_temp < 0:
+                    msg += " mcu_temp:%s" % round(mcu_temp_obj.last_temp, 2)
+                    code_key_string = "key512"
+                elif mcu_temp_obj and mcu_temp_obj.last_temp > 500:
+                    msg += " mcu_temp:%s" % round(mcu_temp_obj.last_temp, 2)
+                    code_key_string = "key518"
+                if code_key_string and not self._serial.adc_out_of_range_info["mcu0_isReport"]:
+                    self._serial.adc_out_of_range_info["mcu0_isReport"] = True
+                    gcode._respond_error("""{"code": "%s", "msg":"mcu %s", "values": []}""" % (code_key_string, self._name + " " + msg))
+                code_key_string = ""
+
+            if self._serial.adc_out_of_range_info["noz0"]:
+                if extruder_obj and extruder_obj.heater.smoothed_temp < 0:
+                    msg += " extruder_temp:%s" % round(extruder_obj.heater.smoothed_temp, 2)
+                    code_key_string = "key509"
+                elif extruder_obj and extruder_obj.heater.smoothed_temp > 500:
+                    msg += " extruder_temp:%s" % round(extruder_obj.heater.smoothed_temp, 2)
+                    code_key_string = "key515"
+                if code_key_string and not self._serial.adc_out_of_range_info["noz0_isReport"]:
+                    self._serial.adc_out_of_range_info["noz0_isReport"] = True
+                    gcode._respond_error("""{"code": "%s", "msg":"nozzle %s", "values": []}""" % (code_key_string, self._name + " " + msg))
+                code_key_string = ""
+
+            if (chamber_temp_obj and -20 < chamber_temp_obj.last_temp < 500) and (mcu_temp_obj and -20 < mcu_temp_obj.last_temp < 500):
+                self._serial.adc_out_of_range_info["mcu0"] = False
+                self._serial.adc_out_of_range_info["mcu0_isReport"] = False
+            if extruder_obj and -20 < extruder_obj.heater.smoothed_temp < 500:
+                self._serial.adc_out_of_range_info["noz0"] = False
+                self._serial.adc_out_of_range_info["noz0_isReport"] = False
+            if heater_bed_obj and -20 < heater_bed_obj.heater.smoothed_temp < 500:
+                self._serial.adc_out_of_range_info["bed0"] = False
+                self._serial.adc_out_of_range_info["bed0_isReport"] = False
+        except Exception as err:
+            logging.error(err)
+        return eventtime + 3.0
     # Serial callbacks
     def _handle_mcu_stats(self, params):
         count = params['count']
@@ -659,12 +730,13 @@ class MCU:
                 code_key_string = "key518"
         elif msg == "Rescheduled timer in the past":
             code_key_string = "key93"
+        elif msg == "Stepper too far in past":
+            code_key_string = "key353"
         elif msg == "Command request":
             code_key_string = "key94"
-        if code_key_string in ["key510", "key516", "key511", "key517"]:
-            gcode = self._printer.lookup_object('gcode')
-            gcode.respond_info("""{"code": "%s", "msg":"%s", "values": []}""" % (code_key_string, prefix + msg + error_help(msg)))
-            return
+        gcode = self._printer.lookup_object('gcode')
+        gcode._respond_error("""{"code": "%s", "msg":"%s", "values": []}""" % (code_key_string, prefix + msg + error_help(msg)))
+        return
         self._printer.invoke_async_shutdown(
             """{"code": "%s", "msg":"%s", "values": []}""" % (code_key_string, prefix + msg + error_help(msg)))
     def _handle_starting(self, params):
@@ -898,7 +970,7 @@ class MCU:
     def lookup_query_command(self, msgformat, respformat, oid=None,
                              cq=None, is_async=False):
         return CommandQueryWrapper(self._serial, msgformat, respformat, oid,
-                                   cq, is_async, self._printer.command_error)
+                                   cq, is_async, self._printer.command_error, printer=self._printer)
     def try_lookup_command(self, msgformat):
         try:
             return self.lookup_command(msgformat)

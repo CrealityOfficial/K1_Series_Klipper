@@ -241,6 +241,16 @@ class BedMesh:
             while not self.splitter.traverse_complete:
                 split_move = self.splitter.split()
                 if split_move:
+                    reactor = self.printer.get_reactor()
+                    z_homed = 'z' in self.toolhead.get_status(reactor.monotonic())['homed_axes']
+                    x_homed = 'x' in self.toolhead.get_status(reactor.monotonic())['homed_axes']
+                    y_homed = 'y' in self.toolhead.get_status(reactor.monotonic())['homed_axes']
+                    # x or y homed, but z not homed
+                    if (x_homed or y_homed) and not z_homed:
+                        #logging.warning(f'bed_mesh: Z axis is not homed, skipping move z: {split_move}')
+                        list_split_move = list(split_move)
+                        list_split_move[2] = 0
+                        split_move = tuple(list_split_move)
                     self.toolhead.move(split_move, speed)
                 else:
                     raise self.gcode.error(
@@ -784,7 +794,7 @@ class MoveSplitter:
         self.split_delta_z = config.getfloat(
             'split_delta_z', .025, minval=0.01)
         self.move_check_distance = config.getfloat(
-            'move_check_distance', 5., minval=3.)
+            'move_check_distance', 5., minval=1.)
         self.z_mesh = None
         self.fade_offset = 0.
         self.gcode = gcode
@@ -949,6 +959,17 @@ class ZMesh:
         # z step distances
         self.avg_z = round(self.avg_z, 2)
         self.print_mesh(logging.debug)
+    def set_z_temp_compensation_callbak(self,ck):
+        self.z_temp_compensation_callbak=ck
+    def set_z_temp_compensation(self):
+        if self.z_temp_compensation_callbak is not None:
+            temp = self.z_temp_compensation_callbak()
+        else:
+            temp = 0.0
+        if self.last_z_temp_compensation!= temp:
+            self.last_z_temp_compensation = temp
+            # K1系列不采用bed_mesh.c文件所以不使用该补偿方案
+            # self.info_array[11] = self.last_z_temp_compensation
     def set_mesh_offsets(self, offsets):
         for i, o in enumerate(offsets):
             if o is not None:

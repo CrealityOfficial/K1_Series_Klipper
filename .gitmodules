@@ -1,0 +1,3 @@
+[submodule "src/bootloader"]
+	path = src/bootloader
+	url = ssh://dingsijie@172.20.180.12:29419/kl_klipperboot

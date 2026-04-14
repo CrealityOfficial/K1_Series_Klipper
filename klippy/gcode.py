@@ -21,6 +21,8 @@ class GCodeCommand:
         # Method wrappers
         self.respond_info = gcode.respond_info
         self.respond_raw = gcode.respond_raw
+        self._respond_error = gcode._respond_error
+        self.check_long_running = gcode.check_long_running
     def get_command(self):
         return self._command
     def get_commandline(self):
@@ -64,22 +66,23 @@ class GCodeCommand:
         try:
             value = parser(value)
         except:
-            raise self.error(
-                             """{"code":"key171", "msg": "Unable to parse '%s' as a  %s", "values": ["%s", "%s"]}""" % (self._commandline, value,
-                                                                                                                  self._commandline, value)
-                             )
+            m = """{"code":"key171", "msg": "Unable to parse '%s' as a  %s", "values": ["%s", "%s"]}""" % (self._commandline, value, self._commandline, value)
+            raise self.error(m)
+        m = None
         if minval is not None and value < minval:
-            raise self.error("""{"code":"key252","msg":"Error on '%s': %s must have minimum of %s","values":["%s","%s","%s"]}"""
-                             % (self._commandline, name, minval, self._commandline, name, minval))
+            m = """{"code":"key252","msg":"Error on '%s': %s must have minimum of %s","values":["%s","%s","%s"]}""" \
+                    % (self._commandline, name, minval, self._commandline, name, minval)
         if maxval is not None and value > maxval:
-            raise self.error("""{"code":"key253", "msg":"Error on '%s': %s must have maximumof %s", "values":["%s","%s","%s"]}"""
-                             % (self._commandline, name, maxval, self._commandline, name, maxval))
+            m = """{"code":"key253", "msg":"Error on '%s': %s must have maximumof %s", "values":["%s","%s","%s"]}""" \
+                    % (self._commandline, name, maxval, self._commandline, name, maxval)
         if above is not None and value <= above:
-            raise self.error("""{"code":"key254", "msg":"Error on '%s': %s must be above %s", "values":["%s","%s","%s"]}"""
-                             % (self._commandline, name, above, self._commandline, name, above))
+            m = """{"code":"key254", "msg":"Error on '%s': %s must be above %s", "values":["%s","%s","%s"]}""" \
+                    % (self._commandline, name, above, self._commandline, name, above)
         if below is not None and value >= below:
-            raise self.error("""{"code":"key255", "msg":"Error on '%s': %s must be below %s", "values":["%s","%s","%s"]}"""
-                             % (self._commandline, name, below, self._commandline, name, below))
+            m = """{"code":"key255", "msg":"Error on '%s': %s must be below %s", "values":["%s","%s","%s"]}""" \
+                    % (self._commandline, name, below, self._commandline, name, below)
+        if m:
+            raise self.error(m)
         return value
     def get_int(self, name, default=sentinel, minval=None, maxval=None):
         return self.get(name, default, parser=int, minval=minval, maxval=maxval)
@@ -100,7 +103,8 @@ class GCodeDispatch:
         printer.register_event_handler("klippy:disconnect",
                                        self._handle_disconnect)
         # Command handling
-        self.is_printer_ready = False
+        # self.is_printer_ready = False
+        self.is_printer_ready = self.is_cancel = False
         self.mutex = printer.get_reactor().mutex()
         self.output_callbacks = []
         self.base_gcode_handlers = self.gcode_handlers = {}
@@ -188,7 +192,9 @@ class GCodeDispatch:
             parts = self.args_r.split(line.upper())
             numparts = len(parts)
             cmd = ""
-            if numparts >= 3 and parts[1] != 'N':
+            if numparts == 5 and parts[1] == 'T':
+                cmd = parts[1] + parts[2] + parts[3].strip()
+            elif  numparts >= 3 and parts[1] != 'N':
                 cmd = parts[1] + parts[2].strip()
             elif numparts >= 5 and parts[1] == 'N':
                 # Skip line number at start of command
@@ -206,9 +212,15 @@ class GCodeDispatch:
                 self.printer.send_event("gcode:command_error")
                 if not need_ack:
                     raise
-            except:
-                msg = """{"code":"key60", "msg":"Internal error on command:%s", "values": ["%s"]}""" % (cmd, cmd)
+            except Exception as err:
+                logging.error("CommandError cmd:%s err:#%s#"%(line.strip("\n"),str(err)))
+                if '"key' in str(err):
+                    msg = str(err)
+                else:
+                    msg = """{"code":"key60", "msg":"Internal error on command:%s", "values": ["%s"]}""" % (cmd, line.strip("\n"))
                 logging.exception(msg)
+                self._respond_error(msg)
+                continue
                 self.printer.invoke_shutdown(msg)
                 self._respond_error(msg)
                 if not need_ack:
@@ -288,6 +300,25 @@ class GCodeDispatch:
     def run_script(self, script):
         with self.mutex:
             self._process_commands(script.split('\n'), need_ack=False)
+    def check_long_running(self):
+        if not self.is_printer_ready:
+            raise self.error("Command failed due to shutdown")
+        if self.is_cancel:
+            self.printer.lookup_object('heaters').turn_off_all_heaters()
+            raise self.error("Command failed due to gcode cancel request")
+    def invoke_cancel(self):
+        if self.is_cancel or not self.is_printer_ready:
+            logging.info("invoke_cancel return, self.is_cancel:%s, self.is_printer_ready:%s"%(self.is_cancel, self.is_printer_ready))
+            return
+        self.is_cancel = True
+        self.gcode_handlers = self.base_gcode_handlers
+        self.printer.send_event("gcode:cancel")
+        logging.info("printer.send_event gcode:cancel start")
+        with self.mutex:
+            self.is_cancel = False
+            if self.is_printer_ready:
+                self.gcode_handlers = self.ready_gcode_handlers
+            logging.info("printer.send_event gcode:cancel end")
     def get_mutex(self):
         return self.mutex
     def create_gcode_command(self, command, commandline, params):
@@ -302,11 +333,15 @@ class GCodeDispatch:
         lines = [l.strip() for l in msg.strip().split('\n')]
         self.respond_raw("// " + "\n// ".join(lines))
     def _respond_error(self, msg):
+        import time
         from extras.tool import reportInformation
         try:
             v_sd = self.printer.lookup_object('virtual_sdcard')
             if v_sd.print_id and "key" in msg and re.findall('key(\d+)', msg) and v_sd.cur_print_data:
                 v_sd.update_print_history_info(only_update_status=True, state="error", error_msg=eval(msg))
+                if os.path.exists("/tmp/camera_main"):
+                    reportInformation("key608", data={"print_id": v_sd.print_id})
+                    time.sleep(0.2)
                 v_sd.print_id = ""
                 reportInformation("key701", data=v_sd.cur_print_data)
                 v_sd.cur_print_data = {}
@@ -324,6 +359,7 @@ class GCodeDispatch:
         self.respond_raw('!! %s' % (lines[0].strip(),))
         if self.is_fileinput:
             self.printer.request_exit('error_exit')
+
     def _respond_state(self, state):
         self.respond_info("Klipper state: %s" % (state,), log=False)
     # Parameter parsing helpers
@@ -344,7 +380,9 @@ class GCodeDispatch:
         else:
             m = self.extended_r.match(gcmd.get_commandline())
         if m is None:
-            raise self.error("""{"code":"key513", "msg": "Malformed command '%s'", "values": ["%s"]}""" % (gcmd.get_commandline(), gcmd.get_commandline()))
+            m = """{"code":"key513", "msg": "Malformed command '%s'", "values": ["%s"]}""" % (gcmd.get_commandline(), gcmd.get_commandline())
+            self._respond_error(m)
+            return
         eargs = m.group('args')
         try:
             eparams = [earg.split('=', 1) for earg in shlex.split(eargs)]
@@ -353,7 +391,9 @@ class GCodeDispatch:
             gcmd._params.update(eparams)
             return gcmd
         except ValueError as e:
-            raise self.error("""{"code":"key514", "msg": "Malformed command args '%s'", "values": ["%s"]}""" % (gcmd.get_commandline(), str(e)))
+            m = """{"code":"key514", "msg": "Malformed command args '%s'", "values": ["%s"]}""" % (gcmd.get_commandline(), str(e))
+            self._respond_error(m)
+            return
     # G-Code special command handlers
     def cmd_default(self, gcmd):
         cmd = gcmd.get_command()
@@ -366,7 +406,13 @@ class GCodeDispatch:
             return
         if not self.is_printer_ready:
             raise gcmd.error(self.printer.get_state_message()[0])
-            return
+            # return
+        if self.is_cancel and cmd in self.ready_gcode_handlers:
+            self.printer.lookup_object('heaters').turn_off_all_heaters()
+            # self.printer.lookup_object('toolhead').flush_step_generation()
+            # self.printer.lookup_object('stepper_enable').motor_off()
+            logging.error("""cmd_default turn_off_all_heaters done!! Command failed due to gcode cancel request when run cmd:%s"""%(gcmd.get_commandline()))
+            raise gcmd.error("""cmd_default Command failed due to gcode cancel request when run cmd:%s"""%gcmd.get_commandline())
         if not cmd:
             cmdline = gcmd.get_commandline()
             if cmdline:
@@ -385,7 +431,7 @@ class GCodeDispatch:
                 not gcmd.get_float('S', 1.) or self.is_fileinput)):
             # Don't warn about requests to turn off fan when fan not present
             return
-        gcmd.respond_info("""{"code":"key61, "msg":"Unknown command:%s", "values": ["%s"]}""" % (cmd, cmd))
+        self._respond_error("""{"code":"key61, "msg":"Unknown command:%s", "values": ["%s"]}""" % (cmd, gcmd.get_commandline()))
     def get_muxcmd(self, cmdkey):
         if cmdkey in self.mux_commands:
             key, values = self.mux_commands[cmdkey]
@@ -398,8 +444,8 @@ class GCodeDispatch:
         else:
             key_param = gcmd.get(key)
         if key_param not in values:
-            raise gcmd.error("""{"code":"key69", "msg": "The value '%s' is not valid for %s", "values": ["%s", "%s"]}"""
-                             % (key_param, key, key_param, key))
+            m = """{"code":"key69", "msg": "The value '%s' is not valid for %s", "values": ["%s", "%s"]}""" % (key_param, key, key_param, key)
+            raise gcmd.error(m)
         values[key_param](gcmd)
     # Low-level G-Code commands that are needed before the config file is loaded
     def cmd_M110(self, gcmd):

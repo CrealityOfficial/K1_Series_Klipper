@@ -322,9 +322,13 @@ class PrinterRail:
             self.position_min = config.getfloat('position_min', 0.)
             self.position_max = config.getfloat(
                 'position_max', above=self.position_min)
+            self.gcode_position_max = config.getfloat(
+                'gcode_position_max', default=self.position_max, above=self.position_min)
         else:
             self.position_min = 0.
             self.position_max = self.position_endstop
+            self.gcode_position_max = self.position_max
+        self.enforce_gcode_position_max = config.getboolean('enforce_gcode_position_max', default=False)
         if (self.position_endstop < self.position_min
             or self.position_endstop > self.position_max):
             raise config.error(

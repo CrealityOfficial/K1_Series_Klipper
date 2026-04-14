@@ -352,6 +352,7 @@ def arg_dictionary(option, opt_str, value, parser):
         parser.values.dictionary = {}
     parser.values.dictionary[key] = fname
 
+
 def main():
     usage = "%prog [options] <config file>"
     opts = optparse.OptionParser(usage)

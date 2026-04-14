@@ -1,0 +1,8 @@
+{
+    "makefile.extensionOutputFolder": "./.vscode",
+    "files.associations": {
+        "gd32f30x_gpio.h": "c",
+        "gpio.h": "c"
+    },
+    "cmake.configureOnOpen": true
+}

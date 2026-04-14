@@ -83,6 +83,7 @@ class PauseResume:
                 if bl24c16f:
                     self.gcode.run_script("EEPROM_WRITE_BYTE ADDR=1 VAL=255")
                 logging.exception(err)
+        logging.info("check_power_loss_state_request %s"%str(response))
         power_loss_switch = False
         if os.path.exists(self.v_sd.user_print_refer_path):
             with open(self.v_sd.user_print_refer_path, "r") as f:
@@ -91,6 +92,7 @@ class PauseResume:
         bl24c16f = self.printer.lookup_object('bl24c16f') if "bl24c16f" in self.printer.objects else None
         eepromState = bl24c16f.checkEepromFirstEnable() if power_loss_switch and bl24c16f else True
         if not eepromState:
+            logging.info("not eepromState!!")
             response["eeprom_state"] = True
         print_stats = self.printer.lookup_object('print_stats', None)
         if response["file_state"] == True and response["eeprom_state"] == True and print_stats and print_stats.state == "standby":
@@ -101,6 +103,7 @@ class PauseResume:
             logging.info("current printer state:%s" % print_stats.state)
         if os.path.exists(self.gcode.exclude_object_info) and (response["file_state"]==False or response["eeprom_state"]==False):
             os.remove(self.gcode.exclude_object_info)
+        logging.info("check_power_loss_state_request response:%s"%str(response))
         web_request.send(response)
         return response
     
@@ -124,12 +127,54 @@ class PauseResume:
         print_stats = self.printer.lookup_object('print_stats', None)
         if print_stats:
             print_stats.power_loss = 0
+
+    def waiting_for_box_error_processing(self):
+        box = self.printer.lookup_object('box',None)
+        if box:
+            reactor_obj = self.printer.get_reactor()
+            while box.inside_error:
+                logging.info("waiting_for_box_error_processing")
+                reactor_obj.pause(reactor_obj.monotonic() + 1)
+
     def _handle_cancel_request(self, web_request):
+        print_stats = self.printer.lookup_object('print_stats')
+        if print_stats.state not in ["printing", "paused"]:
+            logging.warning(f"_handle_cancel_request: not in printing or paused state:{print_stats.state}")
+            return
+        self.waiting_for_box_error_processing()
+        self.gcode.run_script_from_command("WAIT_EXTRUSION_ALL_MATERIALS")
         self.gcode.run_script("CANCEL_PRINT")
+        reactor_obj = self.printer.get_reactor()
+        while print_stats.state == "printing" or print_stats.state == "paused":
+            logging.info(f"_handle_cancel_request: waiting printing to cancel:{print_stats.state}")
+            reactor_obj.pause(reactor_obj.monotonic() + 1)
+        self.gcode.run_script_from_command("M84") # END_PRINT turn off motors
+
     def _handle_pause_request(self, web_request):
+        print_stats = self.printer.lookup_object('print_stats')
+        if print_stats.state != "printing":
+            logging.warning(f"_handle_pause_request: not in printing state:{print_stats.state}")
+            return
+        self.waiting_for_box_error_processing()
+        self.gcode.run_script_from_command("WAIT_EXTRUSION_ALL_MATERIALS")
         self.gcode.run_script("PAUSE")
+        reactor_obj = self.printer.get_reactor()
+        while print_stats.state == "printing":
+            logging.info(f"_handle_pause_request: waiting printing to pause:{print_stats.state}")
+            reactor_obj.pause(reactor_obj.monotonic() + 1)
+
     def _handle_resume_request(self, web_request):
+        print_stats = self.printer.lookup_object('print_stats')
+        if print_stats.state != "paused":
+            logging.warning(f"_handle_resume_request: not in paused state:{print_stats.state}")
+            return
+        self.waiting_for_box_error_processing()
+        self.gcode.run_script_from_command("WAIT_EXTRUSION_ALL_MATERIALS")
         self.gcode.run_script("RESUME")
+        reactor_obj = self.printer.get_reactor()
+        while print_stats.state == "paused":
+            logging.info(f"_handle_resume_request: waiting paused to resume:{print_stats.state}")
+            reactor_obj.pause(reactor_obj.monotonic() + 1)
     def get_status(self, eventtime):
         return {
             'is_paused': self.is_paused
@@ -178,11 +223,16 @@ class PauseResume:
             % (velocity))
         self.send_resume_command()
         self.is_paused = False
-        result = {}
+        self.v_sd.resume_tnn = None
         if os.path.exists(self.v_sd.print_file_name_path):
+            result = {}
             with open(self.v_sd.print_file_name_path, "r") as f:
                 result = (json.loads(f.read()))
                 result["variable_z_safe_pause"] = 0
+                tnn = result["tn_cur_tnn"]
+                if tnn is not None and tnn != '':
+                    self.v_sd.resume_tnn = tnn
+                logging.info("resume tn_cur_tnn[%s]", tnn)
             with open(self.v_sd.print_file_name_path, "w") as f:
                 f.write(json.dumps(result))
                 f.flush()

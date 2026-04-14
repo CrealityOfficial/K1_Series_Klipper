@@ -444,6 +444,11 @@ class PrinterHeaters:
                 break
             print_time = toolhead.get_last_move_time()
             gcode.respond_raw(self._get_temp(eventtime))
+            try:
+                gcode.check_long_running()
+            except Exception as err:
+                # self.turn_off_all_heaters()
+                break
             eventtime = reactor.pause(eventtime + 1.)
         if self.can_break_flag != 2:
             self.can_break_flag = 3
@@ -482,6 +487,11 @@ class PrinterHeaters:
                 return
             print_time = toolhead.get_last_move_time()
             gcmd.respond_raw(self._get_temp(eventtime))
+            try:
+                gcmd.check_long_running()
+            except Exception as err:
+                # self.turn_off_all_heaters()
+                break
             eventtime = reactor.pause(eventtime + 1.)
 
 def load_config(config):

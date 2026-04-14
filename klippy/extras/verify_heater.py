@@ -31,6 +31,7 @@ class HeaterCheck:
         self.last_target = self.goal_temp = self.error = 0.
         self.goal_systime = self.printer.get_reactor().NEVER
         self.check_timer = None
+        self.heater_info = {"extruder_isReport": False, "heater_bed_isReport": False}
     def handle_connect(self):
         if self.printer.get_start_args().get('debugoutput') is not None:
             # Disable verify_heater if outputting to a debug file
@@ -66,6 +67,9 @@ class HeaterCheck:
                 self.goal_temp = temp + self.heating_gain
                 self.goal_systime = eventtime + self.check_gain_time
             elif self.error >= self.max_error:
+                if (self.heater_name == "extruder" and self.heater_info["extruder_isReport"]) or \
+                    (self.heater_name == "heater_bed" and self.heater_info["heater_bed_isReport"]):
+                    return eventtime + 1.
                 # Failure due to inability to maintain target temperature
                 logging.error("verify_heater:heater_fault heater_name:%s, temp:%s, target:%s, hysteresis:%s, self.error:%s, self.max_error:%s" % (self.heater_name, temp, target, self.hysteresis, self.error, self.max_error))
                 return self.heater_fault()
@@ -83,6 +87,8 @@ class HeaterCheck:
         elif self.starting_approach:
             self.goal_temp = min(self.goal_temp, temp + self.heating_gain)
         self.last_target = target
+        self.heater_info["extruder_isReport"] = False
+        self.heater_info["heater_bed_isReport"] = False
         return eventtime + 1.
     def heater_fault(self):
         msg = "Heater %s not heating at expected rate" % (self.heater_name,)
@@ -94,6 +100,14 @@ class HeaterCheck:
         elif self.heater_name == "heater_bed":
             code_key = "key565"
         m = """{"code":"%s","msg":"Heater %s not heating at expected rate"}""" % (code_key, self.heater_name)
+        gcode = self.printer.lookup_object('gcode')
+        # if '"key' in m:
+        gcode._respond_error(m)
+        if self.heater_name == "extruder":
+            self.heater_info["extruder_isReport"] = True
+        elif self.heater_name == "heater_bed":
+            self.heater_info["heater_bed_isReport"] = True
+        return self.printer.get_reactor().NEVER
         try:
             gcode = self.printer.lookup_object('gcode')
             if gcode:
